@@ -50,5 +50,5 @@ const (
 	Day OrderTimeInForce = "day"
 	Gtc OrderTimeInForce = "gtc"
 	Ioc OrderTimeInForce = "ioc"
-	Foc OrderTimeInForce = "foc"
+	Fok OrderTimeInForce = "fok"
 )
