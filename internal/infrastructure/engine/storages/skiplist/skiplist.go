@@ -3,7 +3,7 @@ package skiplist
 import (
 	"math/rand/v2"
 
-	"github.com/KedroPedro/order-matching-engine/internal/domain/entity"
+	enginetypes "github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine/engine_types"
 	"github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine/storages/doublylinkedlist"
 )
 
@@ -24,23 +24,24 @@ type SkipNode struct {
 	Level   int64
 }
 
-func (this *SkipList) Add(order *entity.Order) {
-	curr, update := findNode(this.Head, order.Price, this.maxHeight)
+func (this *SkipList) Add(order *enginetypes.EngineOrder) {
+	curr, update := findNode(this.Head, order.GetLevel(), this.maxHeight)
 
 	for i := this.maxHeight - 1; i >= 0; i-- {
-		for curr.forward[i] != nil && curr.forward[i].Level <= order.Price {
+		for curr.forward[i] != nil && curr.forward[i].Level <= order.GetLevel() {
 			curr = curr.forward[i]
 		}
 		update = append(update, curr)
 	}
 
-	if curr.Level != order.Price {
+	if curr.Level != order.GetLevel() {
 		newNode := SkipNode{
 			Parent:  this,
 			forward: make([]*SkipNode, 0, maxNodeHeight),
-			Level:   order.Price,
-			Value:   &doublylinkedlist.DoublyLinkedList{},
+			Level:   order.GetLevel(),
+			Value:   &doublylinkedlist.DoublyLinkedList{Level: order.GetLevel()},
 		}
+		newNode.Value.Parent = &newNode
 
 		nodeHeight := getRandomHeight()
 
@@ -61,8 +62,28 @@ func (this *SkipList) Add(order *entity.Order) {
 		}
 		curr = &newNode
 	}
-
+	this.Size++
 	curr.Value.Add(order)
+}
+
+func (this *SkipList) GetRange(size int64) []*doublylinkedlist.DoublyLinkedList {
+	var currSize int64 = 0
+	values := make([]*doublylinkedlist.DoublyLinkedList, 0)
+
+	for currSize < size {
+		curr := this.Head.forward[0]
+
+		currSize += curr.Value.Size
+		values = append(values, curr.Value)
+
+		curr = curr.forward[0]
+	}
+
+	return values
+}
+
+func (this *SkipList) GetFirst() *doublylinkedlist.DoublyLinkedList {
+	return this.Head.forward[0].Value
 }
 
 func (this *SkipList) Get(level int64) *doublylinkedlist.DoublyLinkedList {
@@ -90,6 +111,20 @@ func (this *SkipList) Delete(level int64) {
 			}
 		}
 	}
+	this.Size--
+}
+
+func (this *SkipList) DeleteFirst() {
+	firstNode := this.Head.forward[0]
+
+	for currHeight, currNode := range this.Head.forward {
+		if currNode != firstNode {
+			break
+		}
+
+		this.Head.forward[currHeight] = currNode.forward[currHeight]
+	}
+	this.Size--
 }
 
 func getRandomHeight() int16 {
@@ -112,4 +147,8 @@ func findNode(start *SkipNode, level int64, maxHeight int16) (curr *SkipNode, us
 	}
 
 	return curr, used
+}
+
+func (this *SkipNode) Delete() {
+	this.Parent.Delete(this.Level)
 }
