@@ -15,6 +15,7 @@ type Order struct {
 	ProductId      string
 	CreatedAt      time.Time
 	ClosedAt       time.Time
+	Reserve        int64
 }
 
 type OrderType string
