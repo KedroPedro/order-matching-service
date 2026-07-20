@@ -15,19 +15,11 @@ func TestNew(t *testing.T) {
 	tests := []struct {
 		name       string
 		ctx        context.Context
-		orderChan  <-chan *entity.Order
-		cancelChan <-chan entity.Event
-		eventChan  chan entity.Event
-		dayChan    <-chan struct{}
 		testNumber int
 	}{
 		{
 			name:       "create starter",
 			ctx:        context.Background(),
-			orderChan:  make(<-chan *entity.Order),
-			cancelChan: make(<-chan entity.Event),
-			eventChan:  make(chan entity.Event),
-			dayChan:    make(<-chan struct{}),
 			testNumber: 1,
 		},
 	}
@@ -37,14 +29,14 @@ func TestNew(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := New(tt.ctx, tt.orderChan, tt.cancelChan, tt.eventChan, tt.dayChan)
+			got, eventChan := New(tt.ctx)
 
 			switch tt.testNumber {
 			case 1:
 				require.NotNil(t, got)
 				require.NotNil(t, got.engine)
-				require.NotNil(t, got.engineOrderChan)
 				require.False(t, got.closed)
+				require.NotNil(t, eventChan)
 			}
 		})
 	}
@@ -64,14 +56,10 @@ func TestStarter_OrderProcessing(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			orderChan := make(chan *entity.Order)
-			cancelChan := make(chan entity.Event)
-			eventChan := make(chan entity.Event, 10)
-			dayChan := make(chan struct{})
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			_ = New(ctx, orderChan, cancelChan, eventChan, dayChan)
+			starter, _ := New(ctx)
 
 			switch tt.testNumber {
 			case 1:
@@ -84,7 +72,8 @@ func TestStarter_OrderProcessing(t *testing.T) {
 					Quantity:    10,
 				}
 
-				orderChan <- order
+				err := starter.AddToQueue(order)
+				require.NoError(t, err)
 
 				select {
 				case <-time.After(100 * time.Millisecond):
@@ -108,23 +97,20 @@ func TestStarter_CancelProcessing(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			orderChan := make(chan *entity.Order)
-			cancelChan := make(chan entity.Event)
-			eventChan := make(chan entity.Event, 10)
-			dayChan := make(chan struct{})
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			_ = New(ctx, orderChan, cancelChan, eventChan, dayChan)
+			starter, _ := New(ctx)
 
 			switch tt.testNumber {
 			case 1:
-				cancelEvent := entity.Event{
+				cancelEvent := &entity.Event{
 					EventType: entity.OrderCancelled,
 					OrderId:   "order1",
 				}
 
-				cancelChan <- cancelEvent
+				err := starter.Cancel(cancelEvent)
+				require.NoError(t, err)
 
 				select {
 				case <-time.After(100 * time.Millisecond):
@@ -148,20 +134,16 @@ func TestStarter_DayToggle(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			orderChan := make(chan *entity.Order)
-			cancelChan := make(chan entity.Event)
-			eventChan := make(chan entity.Event, 10)
-			dayChan := make(chan struct{})
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			starter := New(ctx, orderChan, cancelChan, eventChan, dayChan)
+			starter, _ := New(ctx)
 
 			switch tt.testNumber {
 			case 1:
 				require.False(t, starter.closed)
 
-				dayChan <- struct{}{}
+				starter.Close()
 
 				select {
 				case <-time.After(100 * time.Millisecond):
@@ -169,7 +151,7 @@ func TestStarter_DayToggle(t *testing.T) {
 
 				require.True(t, starter.closed)
 
-				dayChan <- struct{}{}
+				starter.Open()
 
 				select {
 				case <-time.After(100 * time.Millisecond):
@@ -195,18 +177,14 @@ func TestStarter_ClosedState(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			orderChan := make(chan *entity.Order)
-			cancelChan := make(chan entity.Event)
-			eventChan := make(chan entity.Event, 10)
-			dayChan := make(chan struct{})
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			starter := New(ctx, orderChan, cancelChan, eventChan, dayChan)
+			starter, _ := New(ctx)
 
 			switch tt.testNumber {
 			case 1:
-				dayChan <- struct{}{}
+				starter.Close()
 
 				select {
 				case <-time.After(100 * time.Millisecond):
@@ -223,7 +201,8 @@ func TestStarter_ClosedState(t *testing.T) {
 					Quantity:    10,
 				}
 
-				orderChan <- order
+				err := starter.AddToQueue(order)
+				require.NoError(t, err)
 
 				select {
 				case <-time.After(100 * time.Millisecond):
@@ -247,19 +226,12 @@ func TestStarter_ContextCancel(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			orderChan := make(chan *entity.Order)
-			cancelChan := make(chan entity.Event)
-			eventChan := make(chan entity.Event, 10)
-			dayChan := make(chan struct{})
 			ctx, cancel := context.WithCancel(context.Background())
 
-			_ = New(ctx, orderChan, cancelChan, eventChan, dayChan)
+			_, _ = New(ctx)
 
 			switch tt.testNumber {
 			case 1:
-				close(orderChan)
-				close(cancelChan)
-				close(dayChan)
 				cancel()
 
 				select {

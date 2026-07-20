@@ -16,12 +16,12 @@ type EngineOrder struct {
 	order     *entity.Order
 	Parent    Container
 	EnteredAt time.Time
-	eventChan chan<- entity.Event
+	eventChan chan<- *entity.Event
 }
 
 func NewEngineOrder(
 	order *entity.Order,
-	eventChan chan<- entity.Event,
+	eventChan chan<- *entity.Event,
 ) *EngineOrder {
 	return &EngineOrder{
 		order:     order,

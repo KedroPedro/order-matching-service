@@ -2,6 +2,7 @@ package starter
 
 import (
 	"context"
+	"errors"
 
 	"github.com/KedroPedro/order-matching-engine/internal/domain/entity"
 	"github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine"
@@ -13,21 +14,20 @@ import (
 const (
 	engineOrderChanBuffer  = 1000
 	engineCancelChanBuffer = 1000
+	engineEventChanBuffer  = 1000
 )
 
 type Starter struct {
-	engine          *engine.Engine
-	orderChan       <-chan *entity.Order
-	engineOrderChan chan<- *enginetypes.EngineOrder
-	closed          bool
+	engine     *engine.Engine
+	orderChan  chan *entity.Order
+	dayChan    chan struct{}
+	cancelChan chan *entity.Event
+	closed     bool
 }
 
 func New(
 	ctx context.Context,
-	orderChan <-chan *entity.Order,
-	cancelChan <-chan entity.Event,
-	eventChan chan entity.Event, dayChan <-chan struct{},
-) *Starter {
+) (*Starter, chan *entity.Event) {
 	orderBook := orderbook.New(
 		skiplist.New(skiplist.AscendingList),
 		skiplist.New(skiplist.DescendingList),
@@ -38,6 +38,7 @@ func New(
 		skiplist.New(skiplist.DescendingList),
 	)
 
+	eventChan := make(chan *entity.Event, engineEventChanBuffer)
 	engineOrderChan := make(chan *enginetypes.EngineOrder, engineOrderChanBuffer)
 	engineEndChan := make(chan struct{})
 	engineCancelChan := make(chan string, engineCancelChanBuffer)
@@ -54,15 +55,17 @@ func New(
 	)
 
 	newStarter := &Starter{
-		engine:          newEngine,
-		engineOrderChan: engineOrderChan,
-		closed:          false,
+		engine:     newEngine,
+		orderChan:  make(chan *entity.Order, engineCancelChanBuffer),
+		dayChan:    make(chan struct{}),
+		cancelChan: make(chan *entity.Event, engineCancelChanBuffer),
+		closed:     false,
 	}
 
 	go func() {
 		for {
 			select {
-			case order, ok := <-orderChan:
+			case order, ok := <-newStarter.orderChan:
 				if !ok {
 					<-engineEndChan
 					return
@@ -78,7 +81,7 @@ func New(
 
 				engineOrderChan <- newEngineOrder
 
-			case cancelEvent, ok := <-cancelChan:
+			case cancelEvent, ok := <-newStarter.cancelChan:
 				if !ok {
 					<-engineEndChan
 					return
@@ -90,7 +93,7 @@ func New(
 
 				engineCancelChan <- cancelEvent.OrderId
 
-			case <-dayChan:
+			case <-newStarter.dayChan:
 				if newStarter.closed {
 					newStarter.closed = false
 				} else {
@@ -106,5 +109,39 @@ func New(
 		}
 	}()
 
-	return newStarter
+	return newStarter, eventChan
+}
+
+func (this Starter) IsClosed() bool {
+	return this.closed
+}
+
+func (this *Starter) Open() {
+	if this.closed {
+		this.dayChan <- struct{}{}
+	}
+}
+
+func (this *Starter) Close() {
+	if !this.closed {
+		this.dayChan <- struct{}{}
+	}
+}
+
+func (this *Starter) AddToQueue(order *entity.Order) error {
+	if order == nil {
+		return errors.New("nil order")
+	}
+
+	this.orderChan <- order
+	return nil
+}
+
+func (this *Starter) Cancel(event *entity.Event) error {
+	if event == nil {
+		return errors.New("nil event")
+	}
+
+	this.cancelChan <- event
+	return nil
 }

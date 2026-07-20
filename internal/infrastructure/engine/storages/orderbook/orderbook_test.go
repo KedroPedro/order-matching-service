@@ -43,12 +43,12 @@ func TestOrderBook_Add(t *testing.T) {
 
 	firstOrder := enginetypes.NewEngineOrder(
 		&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok},
-		make(chan<- entity.Event),
+		make(chan<- *entity.Event),
 	)
 
 	secondOrder := enginetypes.NewEngineOrder(
 		&entity.Order{Id: "2", Type: entity.Bid, TimeInForce: entity.Day},
-		make(chan<- entity.Event),
+		make(chan<- *entity.Event),
 	)
 
 	tests := []struct {
@@ -104,7 +104,7 @@ func TestOrderBook_Remove(t *testing.T) {
 
 	firstOrder := enginetypes.NewEngineOrder(
 		&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok},
-		make(chan<- entity.Event),
+		make(chan<- *entity.Event),
 	)
 
 	tests := []struct {
@@ -170,17 +170,17 @@ func TestOrderBook_CancelDayOrders(t *testing.T) {
 		{name: "no day orders", testNumber: 1, askStorage: &BookStorageMock{}, bidStorage: &BookStorageMock{}, orders: []*enginetypes.EngineOrder{
 			enginetypes.NewEngineOrder(
 				&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok, Status: entity.New},
-				make(chan<- entity.Event),
+				make(chan<- *entity.Event),
 			)},
 		},
 		{name: "with day order", testNumber: 2, askStorage: &BookStorageMock{}, bidStorage: &BookStorageMock{}, orders: []*enginetypes.EngineOrder{
 			enginetypes.NewEngineOrder(
 				&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok, Status: entity.New},
-				make(chan<- entity.Event),
+				make(chan<- *entity.Event),
 			),
 			enginetypes.NewEngineOrder(
 				&entity.Order{Id: "2", Type: entity.Bid, TimeInForce: entity.Day, Status: entity.New},
-				make(chan<- entity.Event),
+				make(chan<- *entity.Event),
 			)},
 		},
 	}
@@ -233,17 +233,17 @@ func TestOrderBook_Cancel(t *testing.T) {
 		{name: "cancel non-existent order", testNumber: 1, orderId: "-1", askStorage: &BookStorageMock{}, bidStorage: &BookStorageMock{}, orders: []*enginetypes.EngineOrder{
 			enginetypes.NewEngineOrder(
 				&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok, Status: entity.New},
-				make(chan<- entity.Event),
+				make(chan<- *entity.Event),
 			)},
 		},
 		{name: "cancel existent order", testNumber: 2, orderId: "1", askStorage: &BookStorageMock{}, bidStorage: &BookStorageMock{}, orders: []*enginetypes.EngineOrder{
 			enginetypes.NewEngineOrder(
 				&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok, Status: entity.New},
-				make(chan<- entity.Event),
+				make(chan<- *entity.Event),
 			),
 			enginetypes.NewEngineOrder(
 				&entity.Order{Id: "2", Type: entity.Bid, TimeInForce: entity.Day, Status: entity.New},
-				make(chan<- entity.Event),
+				make(chan<- *entity.Event),
 			)},
 		},
 	}
@@ -287,12 +287,12 @@ func TestOrderBook_GetStopOrders(t *testing.T) {
 
 	stopOrder1 := enginetypes.NewEngineOrder(
 		&entity.Order{Id: "stop1", Type: entity.Bid, TimeInForce: entity.Day, Status: entity.New},
-		make(chan<- entity.Event),
+		make(chan<- *entity.Event),
 	)
 
 	stopOrder2 := enginetypes.NewEngineOrder(
 		&entity.Order{Id: "stop2", Type: entity.Ask, TimeInForce: entity.Day, Status: entity.New},
-		make(chan<- entity.Event),
+		make(chan<- *entity.Event),
 	)
 
 	parent := &ParentMock{}

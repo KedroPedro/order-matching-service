@@ -166,7 +166,7 @@ func TestEngine_processStopOrders(t *testing.T) {
 
 	stopOrder1 := enginetypes.NewEngineOrder(
 		&entity.Order{Id: "stop1", Type: entity.Bid, TimeInForce: entity.Day, Status: entity.New},
-		make(chan<- entity.Event),
+		make(chan<- *entity.Event),
 	)
 
 	tests := []struct {
@@ -241,17 +241,17 @@ func TestEngine_processOrder(t *testing.T) {
 
 	stopOrder := enginetypes.NewEngineOrder(
 		&entity.Order{Id: "stop1", Type: entity.Bid, TimeInForce: entity.Day, Status: entity.New, Stop: true},
-		make(chan<- entity.Event),
+		make(chan<- *entity.Event),
 	)
 
 	regularOrder := enginetypes.NewEngineOrder(
 		&entity.Order{Id: "reg1", Type: entity.Ask, TimeInForce: entity.Gtc, Status: entity.New},
-		make(chan<- entity.Event),
+		make(chan<- *entity.Event),
 	)
 
 	dayOrder := enginetypes.NewEngineOrder(
 		&entity.Order{Id: "day1", Type: entity.Ask, TimeInForce: entity.Day, Status: entity.New},
-		make(chan<- entity.Event),
+		make(chan<- *entity.Event),
 	)
 
 	tests := []struct {
