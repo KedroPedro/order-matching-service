@@ -1,7 +1,6 @@
 package doublylinkedlist
 
 import (
-	engineinterfaces "github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine/engine_interfaces"
 	enginetypes "github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine/engine_types"
 )
 
@@ -9,8 +8,7 @@ type DoublyLinkedList struct {
 	Head   *BNode
 	Tail   *BNode
 	Size   int64
-	Level  int64
-	Parent engineinterfaces.Container
+	Parent enginetypes.Container
 }
 
 type BNode struct {
@@ -20,7 +18,14 @@ type BNode struct {
 	Parent *DoublyLinkedList
 }
 
+func (this *DoublyLinkedList) SetParent(container enginetypes.Container) {
+	this.Parent = container
+}
+
 func (this *DoublyLinkedList) Add(order *enginetypes.EngineOrder) {
+	if order == nil {
+		return
+	}
 	newNode := &BNode{
 		Value:  order,
 		Parent: this,
@@ -42,18 +47,27 @@ func (this *DoublyLinkedList) Add(order *enginetypes.EngineOrder) {
 
 func (this *DoublyLinkedList) Delete() {
 	this.Size--
-	if this.Size <= 0 {
+	if this.Size == 0 {
 		this.Parent.Delete()
 	}
 }
 
-func (this *DoublyLinkedList) GetFirst() *BNode {
-	return this.Head
+func (this *DoublyLinkedList) GetNodes() func() *enginetypes.EngineOrder {
+	curr := this.Head
+	return func() *enginetypes.EngineOrder {
+		if curr == nil {
+			return nil
+		}
+
+		order := curr.Value
+
+		curr = curr.Next
+
+		return order
+	}
 }
 
 func (this *BNode) Delete() {
-	this.Parent.Delete()
-
 	if this.Parent.Head == this {
 		this.Parent.Head = this.Next
 	}
@@ -69,10 +83,8 @@ func (this *BNode) Delete() {
 	if this.Prev != nil {
 		this.Prev.Next = this.Next
 	}
-}
 
-func (this DoublyLinkedList) GetLevel() int64 {
-	return this.Level
+	this.Parent.Delete()
 }
 
 func (this *BNode) GetNext() *BNode {
