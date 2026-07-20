@@ -6,13 +6,29 @@ import (
 	"time"
 
 	"github.com/KedroPedro/order-matching-engine/internal/domain/entity"
-	engineinterfaces "github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine/engine_interfaces"
 )
+
+type Container interface {
+	Delete()
+}
 
 type EngineOrder struct {
 	order     *entity.Order
-	Parent    engineinterfaces.Container
+	Parent    Container
 	EnteredAt time.Time
+	eventChan chan<- entity.Event
+}
+
+func NewEngineOrder(
+	order *entity.Order,
+	eventChan chan<- entity.Event,
+) *EngineOrder {
+	return &EngineOrder{
+		order:     order,
+		Parent:    nil,
+		EnteredAt: time.Now(),
+		eventChan: eventChan,
+	}
 }
 
 type EngineOrderType string
@@ -89,8 +105,24 @@ func (this EngineOrder) GetQuantity() int64 {
 	return this.order.Quantity
 }
 
+func (this EngineOrder) GetUnfilledQuantity() int64 {
+	return this.order.Quantity - this.order.FilledQuantity
+}
+
+func (this EngineOrder) GetFilledQuantity() int64 {
+	return this.order.FilledQuantity
+}
+
 func (this EngineOrder) GetLevel() int64 {
 	return this.order.Price
+}
+
+func (this *EngineOrder) ActivateStopOrder() {
+	this.order.Stop = false
+}
+
+func (this EngineOrder) IsStopOrder() bool {
+	return this.order.Stop
 }
 
 func (this EngineOrder) GetClass() EngineOrderClass {
@@ -99,11 +131,13 @@ func (this EngineOrder) GetClass() EngineOrderClass {
 		return Limit
 	case entity.Market:
 		return Market
-	case entity.Stop:
-		return Stop
 	default:
 		return UndefinedClass
 	}
+}
+
+func (this EngineOrder) GetReserve() int64 {
+	return this.order.Reserve
 }
 
 func (this *EngineOrder) Fill(quantity, price int64) (unfilled int64, rest int64) {
@@ -111,20 +145,26 @@ func (this *EngineOrder) Fill(quantity, price int64) (unfilled int64, rest int64
 		quantity = maxQuantity
 	}
 
+	this.order.Status = entity.PartiallyFilled
+
 	diff := this.order.Quantity - this.order.FilledQuantity - quantity
 	if diff > 0 {
 		this.order.FilledQuantity += quantity
+		this.order.Reserve -= quantity * price
 		return diff, 0
 	} else if diff < 0 {
 		this.order.FilledQuantity += quantity - diff
+		this.order.Reserve -= (quantity - diff) * price
 		return 0, -diff
 	} else {
+		this.order.Status = entity.Filled
 		this.order.FilledQuantity += quantity
+		this.order.Reserve -= quantity * price
 		return 0, 0
 	}
 }
 
-func (this EngineOrder) GetOrderStatus() EngineOrderStatus {
+func (this EngineOrder) GetStatus() EngineOrderStatus {
 	switch this.order.Status {
 	case entity.Canceled:
 		return Canceled
@@ -145,7 +185,17 @@ func (this EngineOrder) GetOrderStatus() EngineOrderStatus {
 	}
 }
 
-//TODO: add event channel
+func (this *EngineOrder) SetNewStatus() {
+	this.order.Status = entity.New
+}
+
+func (this *EngineOrder) SetPendingStatus() {
+	this.order.Status = entity.Pending
+}
+
+func (this *EngineOrder) SetExpiredStatus() {
+	this.order.Status = entity.Expired
+}
 
 func (this *EngineOrder) SetRejectedStatus() {
 	this.order.Status = entity.Rejected
@@ -156,7 +206,5 @@ func (this *EngineOrder) SetCanceledStatus() {
 }
 
 func (this *EngineOrder) Delete() {
-	if this.Parent != nil {
-		this.Parent.Delete()
-	}
+	this.Parent.Delete()
 }
