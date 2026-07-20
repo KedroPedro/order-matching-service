@@ -16,6 +16,7 @@ type Order struct {
 	CreatedAt      time.Time
 	ClosedAt       time.Time
 	Reserve        int64
+	Stop           bool
 }
 
 type OrderType string
@@ -30,7 +31,6 @@ type OrderClass string
 const (
 	Market OrderClass = "market"
 	Limit  OrderClass = "limit"
-	Stop   OrderClass = "stop"
 )
 
 type OrderStatus string
