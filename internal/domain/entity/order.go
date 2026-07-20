@@ -15,6 +15,8 @@ type Order struct {
 	ProductId      string
 	CreatedAt      time.Time
 	ClosedAt       time.Time
+	Reserve        int64
+	Stop           bool
 }
 
 type OrderType string
@@ -29,7 +31,6 @@ type OrderClass string
 const (
 	Market OrderClass = "market"
 	Limit  OrderClass = "limit"
-	Stop   OrderClass = "stop"
 )
 
 type OrderStatus string
@@ -50,5 +51,5 @@ const (
 	Day OrderTimeInForce = "day"
 	Gtc OrderTimeInForce = "gtc"
 	Ioc OrderTimeInForce = "ioc"
-	Foc OrderTimeInForce = "foc"
+	Fok OrderTimeInForce = "fok"
 )
