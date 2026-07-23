@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/KedroPedro/order-matching-engine/internal/domain/entity"
-	"github.com/KedroPedro/order-matching-engine/internal/infrastructure/mongodb/mongotypes"
+	"github.com/KedroPedro/order-matching-engine/internal/infrastructure/mongodb/types"
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -141,7 +141,7 @@ func createEventUpdateModel(event *entity.Event) mongo.WriteModel { // TODO: nee
 }
 
 func createOrderInsertModel(order *entity.Order) mongo.WriteModel {
-	mongoOrder := mongotypes.OrderFromDomain(order)
+	mongoOrder := types.OrderFromDomain(order)
 
 	return mongo.NewInsertOneModel().SetDocument(mongoOrder)
 }
