@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 
+	"github.com/KedroPedro/order-matching-engine/internal/domain/interfaces"
 	"github.com/KedroPedro/order-matching-engine/internal/infrastructure/mongodb/repository"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -39,10 +40,10 @@ func NewMongoClient() (*Client, error) {
 	}, nil
 }
 
-func (this *Client) NewOrderRepository(ctx context.Context) *repository.OrderRepository {
+func (this *Client) NewOrderRepository(ctx context.Context) interfaces.OrderRepository {
 	return repository.NewOrderRepository(ctx, this.db.Collection(mongodbOrdersCollection))
 }
 
-func (this *Client) NewUserRepository() *repository.UserRepository {
+func (this *Client) NewUserRepository() interfaces.UserRepository {
 	return repository.NewUserRepository(this.db.Collection(mongodbUsersCollection))
 }
