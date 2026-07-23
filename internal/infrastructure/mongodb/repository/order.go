@@ -23,7 +23,7 @@ const (
 	maxSendRetryValue    = 5
 )
 
-func New(ctx context.Context, orderCollection *mongo.Collection) *OrderRepository {
+func NewOrderRepository(ctx context.Context, orderCollection *mongo.Collection) *OrderRepository {
 	newOrderRepository := &OrderRepository{
 		collection: orderCollection,
 		modelsCh:   make(chan mongo.WriteModel, modelsChanBuffer),
