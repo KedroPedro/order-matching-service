@@ -27,3 +27,11 @@ func (this Event) GetValue() any {
 func (this Event) GetOrderId() string {
 	return this.orderId
 }
+
+func (this Event) GetOrderType() OrderType {
+	return this.orderType
+}
+
+func (this Event) GetOrderOwnerId() string {
+	return this.orderOwnerId
+}
