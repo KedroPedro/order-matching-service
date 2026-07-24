@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"fmt"
-	"hash/maphash"
 	"strconv"
 
 	"github.com/KedroPedro/order-matching-engine/internal/domain/entity"
@@ -103,7 +102,7 @@ func (this *OrderRepository) GetBestPrice(ctx context.Context, orderType entity.
 	return int64(z[0].Score), nil
 }
 
-func (this *OrderRepository) GetState(ctx context.Context) (map[string]string, map[string]string, error) {
+func (this *OrderRepository) GetState(ctx context.Context) (asks map[string]string, bids map[string]string, err error) {
 
 	pipe := this.conn.Pipeline()
 

@@ -127,14 +127,13 @@ func createEventUpdateModel(event *entity.Event) mongo.WriteModel { // TODO: nee
 	var update bson.M
 
 	switch event.GetType() {
-	case entity.OrderStatusChanged:
-		update = bson.M{"$set": bson.M{"status": event.GetValue()}}
-
 	case entity.OrderReserveChanged:
 		update = bson.M{"$inc": bson.M{"reserve": -event.GetValue().(int)}}
 
 	case entity.OrderBeingFilled:
 		update = bson.M{"$inc": bson.M{"filled_quantity": event.GetValue().(int)}}
+	default:
+		update = bson.M{"$set": bson.M{"status": event.GetValue()}}
 	}
 
 	return mongo.NewUpdateOneModel().SetFilter(filter).SetUpdate(update)
