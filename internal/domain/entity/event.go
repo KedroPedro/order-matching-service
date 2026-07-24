@@ -4,6 +4,7 @@ type Event struct {
 	orderId      string
 	orderOwnerId string
 	orderType    OrderType
+	orderPrice   int64
 	value        any
 	event        EventType
 }
@@ -31,4 +32,16 @@ func (this Event) GetValue() any {
 
 func (this Event) GetOrderId() string {
 	return this.orderId
+}
+
+func (this Event) GetOrderType() OrderType {
+	return this.orderType
+}
+
+func (this Event) GetOrderOwnerId() string {
+	return this.orderOwnerId
+}
+
+func (this Event) GetOrderPrice() int64 {
+	return this.orderPrice
 }
