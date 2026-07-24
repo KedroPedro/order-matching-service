@@ -20,7 +20,7 @@ type OrderRepository interface {
 type MarketStateRepository interface {
 	AddToQueue(ctx context.Context, order *entity.Order) error
 	ProcessEvent(ctx context.Context, event *entity.Event) error
-	GetLastPrice(ctx context.Context, orderType entity.OrderType) (int64, error)
+	GetBestPrice(ctx context.Context, orderType entity.OrderType) (int64, error)
 	GetState(ctx context.Context)
 }
 
