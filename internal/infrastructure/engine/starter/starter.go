@@ -87,7 +87,7 @@ func New(
 					return
 				}
 
-				if cancelEvent.GetType() != entity.OrderStatusChanged {
+				if cancelEvent.GetType() != entity.OrderCancelled {
 					continue
 				}
 
