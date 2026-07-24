@@ -21,7 +21,7 @@ type MarketStateRepository interface {
 	AddToQueue(ctx context.Context, order *entity.Order) error
 	ProcessEvent(ctx context.Context, event *entity.Event) error
 	GetBestPrice(ctx context.Context, orderType entity.OrderType) (int64, error)
-	GetState(ctx context.Context)
+	GetState(ctx context.Context) (asks map[string]string, bids map[string]string, err error)
 }
 
 type Engine interface {
