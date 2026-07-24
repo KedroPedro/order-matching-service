@@ -11,7 +11,12 @@ type Event struct {
 type EventType string
 
 const (
-	OrderStatusChanged  EventType = "order_status_changed_event"
+	OrderCancelled      EventType = "order_cancelled_event"
+	OrderFilled         EventType = "order_filled_event"
+	OrderRejected       EventType = "order_rejected_event"
+	OrderExpired        EventType = "order_expired_event"
+	OrderPending        EventType = "order_pending_event"
+	OrderNew            EventType = "order_new_event"
 	OrderBeingFilled    EventType = "order_being_filled_event"
 	OrderReserveChanged EventType = "order_reserve_changed_event"
 )
