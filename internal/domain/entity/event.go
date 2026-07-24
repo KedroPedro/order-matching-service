@@ -22,6 +22,17 @@ const (
 	OrderReserveChanged EventType = "order_reserve_changed_event"
 )
 
+func NewEvent(order *Order, value any, eventType EventType) *Event {
+	return &Event{
+		orderId:      order.Id,
+		orderOwnerId: order.OwnerId,
+		orderType:    order.Type,
+		orderPrice:   order.Price,
+		value:        value,
+		event:        eventType,
+	}
+}
+
 func (this Event) GetType() EventType {
 	return this.event
 }
