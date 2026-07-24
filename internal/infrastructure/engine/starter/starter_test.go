@@ -104,10 +104,12 @@ func TestStarter_CancelProcessing(t *testing.T) {
 
 			switch tt.testNumber {
 			case 1:
-				cancelEvent := &entity.Event{
-					EventType: entity.OrderCancelled,
-					OrderId:   "order1",
-				}
+				cancelEvent := entity.NewEvent(&entity.Order{
+					Id:      "order1",
+					OwnerId: "owner1",
+					Type:    entity.Ask,
+					Price:   100,
+				}, nil, entity.OrderCancelled)
 
 				err := starter.Cancel(cancelEvent)
 				require.NoError(t, err)
