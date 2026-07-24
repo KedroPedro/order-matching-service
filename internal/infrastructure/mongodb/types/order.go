@@ -1,4 +1,4 @@
-package mongotypes
+package types
 
 import (
 	"errors"
@@ -8,16 +8,16 @@ import (
 )
 
 type Order struct {
-	Id             string    `bson:"_id"`
-	OwnerId        string    `bson:"owner_id"`
-	Type           string    `bson:"type"`
-	Price          int64     `bson:"price"`
+	Id             string    `bson:"_id" `
+	OwnerId        string    `bson:"owner_id" `
+	Type           string    `bson:"type" `
+	Price          int64     `bson:"price" `
 	Quantity       int64     `bson:"quantity"`
 	FilledQuantity int64     `bson:"filled_quantity"`
-	Class          string    `bson:"class"`
+	Class          string    `bson:"class" `
 	TimeInForce    string    `bson:"time_in_force"`
-	Status         string    `bson:"status"`
-	ProductId      string    `bson:"product_id"`
+	Status         string    `bson:"status" `
+	ProductId      string    `bson:"product_id" `
 	CreatedAt      time.Time `bson:"created_at"`
 	ClosedAt       time.Time `bson:"closed_at"`
 	Reserve        int64     `bson:"reserve"`

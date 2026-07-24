@@ -1,4 +1,4 @@
-package mongotypes
+package types
 
 type User struct {
 	Id               string `bson:"_id"`
