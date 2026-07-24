@@ -87,11 +87,11 @@ func New(
 					return
 				}
 
-				if cancelEvent.EventType != entity.OrderCancelled {
+				if cancelEvent.GetType() != entity.OrderStatusChanged {
 					continue
 				}
 
-				engineCancelChan <- cancelEvent.OrderId
+				engineCancelChan <- cancelEvent.GetOrderId()
 
 			case <-newStarter.dayChan:
 				if newStarter.closed {

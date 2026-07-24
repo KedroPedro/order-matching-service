@@ -3,8 +3,15 @@ module github.com/KedroPedro/order-matching-engine
 go 1.26.4
 
 require (
-	github.com/google/uuid v1.6.0 // indirect
+	github.com/stretchr/testify v1.11.1
+	go.mongodb.org/mongo-driver/v2 v2.8.0
+)
+
+require (
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/klauspost/compress v1.17.6 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.2.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
