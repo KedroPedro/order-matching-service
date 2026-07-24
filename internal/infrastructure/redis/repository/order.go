@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"fmt"
+	"hash/maphash"
+	"strconv"
 
 	"github.com/KedroPedro/order-matching-engine/internal/domain/entity"
 	"github.com/redis/go-redis/v9"
@@ -42,7 +44,9 @@ func (this *OrderRepository) AddToQueue(ctx context.Context, order *entity.Order
 			"product_id":      order.ProductId,
 			"quantity":        order.Quantity,
 			"status":          order.Status,
-		})}
+		}),
+		pipe.HIncrBy(ctx, fmt.Sprintf("%s:%s", "book", order.Type), strconv.Itoa(int(order.Price)), order.Quantity),
+	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return err
@@ -62,12 +66,14 @@ func (this *OrderRepository) ProcessEvent(ctx context.Context, event *entity.Eve
 
 	switch event.GetType() {
 	case entity.OrderBeingFilled:
-		err = this.conn.HIncrBy(ctx, fmt.Sprintf("%s:%s", "order", event.GetOrderId()), "filled_quantity", event.GetValue().(int64)).Err()
+		pipe := this.conn.Pipeline()
+		pipe.HIncrBy(ctx, fmt.Sprintf("%s:%s", "order", event.GetOrderId()), "filled_quantity", event.GetValue().(int64))
+		pipe.HIncrBy(ctx, fmt.Sprintf("%s:%s", "book", event.GetOrderType()), strconv.Itoa(int(event.GetOrderPrice())), -event.GetValue().(int64))
 
 	case entity.OrderReserveChanged:
 		err = this.conn.HIncrBy(ctx, fmt.Sprintf("%s:%s", "order", event.GetOrderId()), "reserve", -event.GetValue().(int64)).Err()
 
-	case entity.OrderStatusChanged:
+	default:
 		err = this.conn.HSet(ctx, fmt.Sprintf("%s:%s", "order", event.GetOrderId()), "status", event.GetValue().(string)).Err()
 	}
 
@@ -97,5 +103,27 @@ func (this *OrderRepository) GetBestPrice(ctx context.Context, orderType entity.
 	return int64(z[0].Score), nil
 }
 
-func (this *OrderRepository) GetState(ctx context.Context) {
+func (this *OrderRepository) GetState(ctx context.Context) (map[string]string, map[string]string, error) {
+
+	pipe := this.conn.Pipeline()
+
+	mapCmds := []*redis.MapStringStringCmd{
+		pipe.HGetAll(ctx, fmt.Sprintf("%s:%s", "book", entity.Ask)),
+		pipe.HGetAll(ctx, fmt.Sprintf("%s:%s", "book", entity.Bid)),
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, nil, err
+	}
+
+	maps := make([]map[string]string, len(mapCmds))
+	for i, cmd := range mapCmds {
+		if m, err := cmd.Result(); err != nil {
+			return nil, nil, err
+		} else {
+			maps[i] = m
+		}
+	}
+
+	return maps[0], maps[1], nil
 }
