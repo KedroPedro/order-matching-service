@@ -1,6 +1,9 @@
 package orderbook
 
 import (
+	"fmt"
+	"time"
+
 	enginetypes "github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine/engine_types"
 )
 
@@ -69,8 +72,8 @@ func (this *OrderBook) CancelDayOrders() {
 
 func (this *OrderBook) Cancel(orderId string) {
 	if order, ok := this.orders[orderId]; ok {
-		order.Delete()
 		order.SetCanceledStatus()
+		order.Delete()
 		delete(this.orders, orderId)
 		delete(this.dayOrders, orderId)
 	}
@@ -108,9 +111,9 @@ func (this *OrderBook) Match(order *enginetypes.EngineOrder) {
 
 	switch order.GetType() {
 	case enginetypes.Ask:
-		levels = this.ask.GetRange(order.GetQuantity())
-	case enginetypes.Bid:
 		levels = this.bid.GetRange(order.GetQuantity())
+	case enginetypes.Bid:
+		levels = this.ask.GetRange(order.GetQuantity())
 	default:
 		return
 	}
@@ -126,7 +129,6 @@ func (this *OrderBook) Match(order *enginetypes.EngineOrder) {
 		currUsedQuantity := level.GetQuantity() - rest
 
 		totalUsedQuantity += currUsedQuantity
-		level.DecreaseQuantity(currUsedQuantity)
 
 		if unf == 0 {
 			break
@@ -140,21 +142,13 @@ func (this *OrderBook) Match(order *enginetypes.EngineOrder) {
 	switch order.GetTimeInForce() {
 	case enginetypes.DAY:
 		if order.GetStatus() != enginetypes.Filled {
-			if order.GetType() == enginetypes.Ask {
-				this.ask.Add(order)
-			} else {
-				this.bid.Add(order)
-			}
+			this.Add(order)
 			this.dayOrders[order.GetId()] = order
 		}
 
 	case enginetypes.GTC:
 		if order.GetStatus() != enginetypes.Filled {
-			if order.GetType() == enginetypes.Ask {
-				this.ask.Add(order)
-			} else {
-				this.bid.Add(order)
-			}
+			this.Add(order)
 		}
 
 	case enginetypes.FOK:

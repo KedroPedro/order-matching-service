@@ -60,6 +60,7 @@ func TestStarter_OrderProcessing(t *testing.T) {
 			defer cancel()
 
 			starter, _ := New(ctx)
+			go starter.Start(ctx)
 
 			switch tt.testNumber {
 			case 1:
@@ -101,15 +102,19 @@ func TestStarter_CancelProcessing(t *testing.T) {
 			defer cancel()
 
 			starter, _ := New(ctx)
+			go starter.Start(ctx)
 
 			switch tt.testNumber {
 			case 1:
-				cancelEvent := entity.NewEvent(&entity.Order{
-					Id:      "order1",
-					OwnerId: "owner1",
-					Type:    entity.Ask,
-					Price:   100,
-				}, nil, entity.OrderCancelled)
+				order := entity.Order{
+					Id:             "order1",
+					OwnerId:        "owner1",
+					Type:           entity.Ask,
+					Price:          100,
+					Quantity:       10,
+					FilledQuantity: 0,
+				}
+				cancelEvent := entity.NewOrderCancelledEvent(&order, order.Quantity-order.FilledQuantity)
 
 				err := starter.Cancel(cancelEvent)
 				require.NoError(t, err)
@@ -140,10 +145,11 @@ func TestStarter_DayToggle(t *testing.T) {
 			defer cancel()
 
 			starter, _ := New(ctx)
+			go starter.Start(ctx)
 
 			switch tt.testNumber {
 			case 1:
-				require.False(t, starter.closed)
+				require.False(t, starter.IsClosed())
 
 				starter.Close()
 
@@ -151,7 +157,7 @@ func TestStarter_DayToggle(t *testing.T) {
 				case <-time.After(100 * time.Millisecond):
 				}
 
-				require.True(t, starter.closed)
+				require.True(t, starter.IsClosed())
 
 				starter.Open()
 
@@ -159,7 +165,7 @@ func TestStarter_DayToggle(t *testing.T) {
 				case <-time.After(100 * time.Millisecond):
 				}
 
-				require.False(t, starter.closed)
+				require.False(t, starter.IsClosed())
 			}
 		})
 	}
@@ -183,6 +189,7 @@ func TestStarter_ClosedState(t *testing.T) {
 			defer cancel()
 
 			starter, _ := New(ctx)
+			go starter.Start(ctx)
 
 			switch tt.testNumber {
 			case 1:
@@ -192,7 +199,7 @@ func TestStarter_ClosedState(t *testing.T) {
 				case <-time.After(100 * time.Millisecond):
 				}
 
-				require.True(t, starter.closed)
+				require.True(t, starter.IsClosed())
 
 				order := &entity.Order{
 					Id:          "1",
@@ -230,7 +237,8 @@ func TestStarter_ContextCancel(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 
-			_, _ = New(ctx)
+			starter, _ := New(ctx)
+			go starter.Start(ctx)
 
 			switch tt.testNumber {
 			case 1:

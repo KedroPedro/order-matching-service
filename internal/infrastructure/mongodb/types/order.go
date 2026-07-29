@@ -1,10 +1,10 @@
 package types
 
 import (
-	"errors"
 	"time"
 
 	"github.com/KedroPedro/order-matching-engine/internal/domain/entity"
+	"github.com/KedroPedro/order-matching-engine/internal/pkg/errs"
 )
 
 type Order struct {
@@ -17,7 +17,6 @@ type Order struct {
 	Class          string    `bson:"class" `
 	TimeInForce    string    `bson:"time_in_force"`
 	Status         string    `bson:"status" `
-	ProductId      string    `bson:"product_id" `
 	CreatedAt      time.Time `bson:"created_at"`
 	ClosedAt       time.Time `bson:"closed_at"`
 	Reserve        int64     `bson:"reserve"`
@@ -35,7 +34,6 @@ func OrderFromDomain(order *entity.Order) *Order {
 		Class:          string(order.Class),
 		TimeInForce:    string(order.TimeInForce),
 		Status:         string(order.Status),
-		ProductId:      order.ProductId,
 		CreatedAt:      order.CreatedAt,
 		ClosedAt:       order.ClosedAt,
 		Reserve:        order.Reserve,
@@ -45,14 +43,13 @@ func OrderFromDomain(order *entity.Order) *Order {
 
 func OrderToDomain(order *Order) (*entity.Order, error) {
 	var Type entity.OrderType
-
 	switch order.Type {
 	case string(entity.Ask):
 		Type = entity.Ask
 	case string(entity.Bid):
 		Type = entity.Bid
 	default:
-		return nil, errors.New("undefined node type")
+		return nil, errs.NewTypeError("undefined order type")
 	}
 
 	var Class entity.OrderClass
@@ -62,7 +59,7 @@ func OrderToDomain(order *Order) (*entity.Order, error) {
 	case string(entity.Limit):
 		Class = entity.Limit
 	default:
-		return nil, errors.New("undefined node class")
+		return nil, errs.NewTypeError("undefined order class")
 	}
 
 	var TimeInForce entity.OrderTimeInForce
@@ -76,7 +73,7 @@ func OrderToDomain(order *Order) (*entity.Order, error) {
 	case string(entity.Day):
 		TimeInForce = entity.Day
 	default:
-		return nil, errors.New("undefined node time in force")
+		return nil, errs.NewTypeError("undefined order time in force")
 	}
 
 	var Status entity.OrderStatus
@@ -96,7 +93,7 @@ func OrderToDomain(order *Order) (*entity.Order, error) {
 	case string(entity.Expired):
 		Status = entity.Expired
 	default:
-		return nil, errors.New("undefined node status")
+		return nil, errs.NewTypeError("undefined order status")
 	}
 
 	return &entity.Order{
@@ -109,9 +106,7 @@ func OrderToDomain(order *Order) (*entity.Order, error) {
 		Class:          Class,
 		TimeInForce:    TimeInForce,
 		Status:         Status,
-		ProductId:      order.ProductId,
 		CreatedAt:      order.CreatedAt,
-		ClosedAt:       order.ClosedAt,
 		Reserve:        order.Reserve,
 		Stop:           order.Stop,
 	}, nil

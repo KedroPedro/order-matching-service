@@ -2,13 +2,15 @@ package mongodb
 
 import (
 	"context"
-	"errors"
 	"os"
+	"time"
 
 	"github.com/KedroPedro/order-matching-engine/internal/domain/interfaces"
 	"github.com/KedroPedro/order-matching-engine/internal/infrastructure/mongodb/repository"
+	"github.com/KedroPedro/order-matching-engine/internal/pkg/errs"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 type Client struct {
@@ -19,18 +21,26 @@ type Client struct {
 const (
 	mongodbUri              = "MONGODB_URI"
 	mongodbOrdersCollection = "orders"
+	mongodbEventsCollection = "events"
 	mongodbUsersCollection  = "users"
-	mongodbDatabase         = "OrderMatchingService"
+	mongodbDatabase         = "matching_db"
 )
 
 func NewMongoClient() (*Client, error) {
 	var uri string
 	if uri = os.Getenv(mongodbUri); uri == "" {
-		return nil, errors.New("environment variable missed") //TODO: add normal error
+		return nil, errs.NewMissedEnvironmentVariableError(mongodbUri)
 	}
+
+	connCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
 
 	client, err := mongo.Connect(options.Client().ApplyURI(uri))
 	if err != nil {
+		return nil, err
+	}
+
+	if err := client.Ping(connCtx, readpref.Primary()); err != nil {
 		return nil, err
 	}
 
@@ -41,7 +51,7 @@ func NewMongoClient() (*Client, error) {
 }
 
 func (this *Client) NewOrderRepository(ctx context.Context) interfaces.OrderRepository {
-	return repository.NewOrderRepository(ctx, this.db.Collection(mongodbOrdersCollection))
+	return repository.NewOrderRepository(ctx, this.db.Collection(mongodbOrdersCollection), this.db.Collection(mongodbEventsCollection))
 }
 
 func (this *Client) NewUserRepository() interfaces.UserRepository {
