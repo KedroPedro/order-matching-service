@@ -1,58 +1,118 @@
 package entity
 
-type Event struct {
-	orderId      string
-	orderOwnerId string
-	orderType    OrderType
-	orderPrice   int64
-	value        any
-	event        EventType
-}
-
 type EventType string
 
 const (
-	OrderCancelled      EventType = "order_cancelled_event"
-	OrderFilled         EventType = "order_filled_event"
-	OrderRejected       EventType = "order_rejected_event"
-	OrderExpired        EventType = "order_expired_event"
-	OrderPending        EventType = "order_pending_event"
-	OrderNew            EventType = "order_new_event"
-	OrderBeingFilled    EventType = "order_being_filled_event"
-	OrderReserveChanged EventType = "order_reserve_changed_event"
+	OrderStatusChanged   EventType = "order_status_changed"
+	OrderBeingFilled     EventType = "order_being_filled_event"
+	OrderReserveChanged  EventType = "order_reserve_changed"
+	OrderCancelled       EventType = "order_cancelled"
+	OrderRejected        EventType = "order_rejected"
+	OrderFilled          EventType = "order_filled"
+	OrderQuantityChanged EventType = "order_quantity_changed"
 )
 
-func NewEvent(order *Order, value any, eventType EventType) *Event {
+type Event struct {
+	payload   any
+	eventType EventType
+}
+
+type OrderBeingFilledPayload struct {
+	Order        Order
+	FilledDelta  int64
+	NewFilledQty int64
+}
+
+type OrderReserveChangedPayload struct {
+	OrderId      string
+	ReserveDelta int64
+}
+
+type OrderQuantityChangedPayload struct {
+	OrderId       string
+	QuantityDelta int64
+	Price         int64
+	OrderType     OrderType
+}
+
+type OrderStatusChangedPayload struct {
+	OrderId string
+	Status  OrderStatus
+}
+
+type OrderRemovalPayload struct {
+	Order Order
+	Delta int64
+}
+
+func NewOrderBeingFilledEvent(order *Order, filledDelta int64, newFilledQty int64) *Event {
 	return &Event{
-		orderId:      order.Id,
-		orderOwnerId: order.OwnerId,
-		orderType:    order.Type,
-		orderPrice:   order.Price,
-		value:        value,
-		event:        eventType,
+		payload: OrderBeingFilledPayload{
+			Order:        *order,
+			FilledDelta:  filledDelta,
+			NewFilledQty: newFilledQty,
+		},
+		eventType: OrderBeingFilled,
 	}
 }
 
-func (this Event) GetType() EventType {
-	return this.event
+func NewOrderReserveChangedEvent(orderId string, reserveDelta int64) *Event {
+	return &Event{
+		payload: OrderReserveChangedPayload{
+			OrderId:      orderId,
+			ReserveDelta: reserveDelta,
+		},
+		eventType: OrderReserveChanged,
+	}
 }
 
-func (this Event) GetValue() any {
-	return this.value
+func NewOrderQuantityChangedEvent(orderId string, quantityDelta int64, price int64, orderType OrderType) *Event {
+	return &Event{
+		payload: OrderQuantityChangedPayload{
+			OrderId:       orderId,
+			QuantityDelta: quantityDelta,
+			Price:         price,
+			OrderType:     orderType,
+		},
+		eventType: OrderQuantityChanged,
+	}
 }
 
-func (this Event) GetOrderId() string {
-	return this.orderId
+func NewOrderStatusChangedEvent(orderId string, status OrderStatus) *Event {
+	return &Event{
+		payload: OrderStatusChangedPayload{
+			OrderId: orderId,
+			Status:  status,
+		},
+		eventType: OrderStatusChanged,
+	}
 }
 
-func (this Event) GetOrderType() OrderType {
-	return this.orderType
+func NewOrderCancelledEvent(order *Order, delta int64) *Event {
+	return &Event{
+		payload:   OrderRemovalPayload{Order: *order, Delta: delta},
+		eventType: OrderCancelled,
+	}
 }
 
-func (this Event) GetOrderOwnerId() string {
-	return this.orderOwnerId
+func NewOrderRejectedEvent(order *Order, delta int64) *Event {
+	return &Event{
+		payload:   OrderRemovalPayload{Order: *order, Delta: delta},
+		eventType: OrderRejected,
+	}
 }
 
-func (this Event) GetOrderPrice() int64 {
-	return this.orderPrice
+func NewOrderFilledEvent(order *Order, delta int64) *Event {
+	return &Event{
+		payload:   OrderRemovalPayload{Order: *order, Delta: delta},
+		eventType: OrderFilled,
+	}
+}
+
+func (e *Event) GetType() EventType {
+	return e.eventType
+}
+
+func (e *Event) GetPayload() any {
+	return e.payload
 }

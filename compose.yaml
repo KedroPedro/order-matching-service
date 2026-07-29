@@ -1,0 +1,51 @@
+services:
+  redis:
+    image: redis:latest
+    container_name: redis_container
+    command: redis-server --requirepass pass
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  matching-service:
+      build: .
+      ports:
+        - "443:443"
+      environment:
+        MONGODB_URI: ${MONGODB_URI}
+        REDIS_ADDR: ${REDIS_ADDR}
+        REDIS_PASSWORD: ${REDIS_PASSWORD}
+        REDIS_DB: ${REDIS_DB}
+        SERVER_ADDR: ${SERVER_ADDR}
+        CERT_FILE: ${CERT_FILE}
+        CERT_FILE_KEY: ${CERT_FILE_KEY}
+      depends_on:
+        mongodb:
+          condition: service_healthy
+        redis:
+          condition: service_healthy
+      healthcheck:
+        test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://localhost:443/health"]
+        interval: 30s
+        timeout: 10s
+        retries: 3
+        start_period: 5s

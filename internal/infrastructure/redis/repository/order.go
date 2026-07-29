@@ -2,21 +2,43 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
 	"github.com/KedroPedro/order-matching-engine/internal/domain/entity"
+	"github.com/KedroPedro/order-matching-engine/internal/pkg/errs"
 	"github.com/redis/go-redis/v9"
 )
 
+const (
+	incrLevelScript = `
+		local newQty = redis.call('HINCRBY', KEYS[1], ARGV[1], ARGV[2])
+		if newQty <= 0 then
+    		redis.call('HDEL', KEYS[1], ARGV[1])
+		end
+		return newQty
+	`
+)
+
 type OrderRepository struct {
-	conn *redis.Conn
+	conn         *redis.Client
+	incrLevelSha string
 }
 
-func NewOrderRepository(conn *redis.Conn) *OrderRepository {
+func NewOrderRepository(conn *redis.Client) *OrderRepository {
 	return &OrderRepository{
 		conn: conn,
 	}
+}
+
+func (this *OrderRepository) LoadScripts(ctx context.Context) error {
+	sha, err := this.conn.ScriptLoad(ctx, incrLevelScript).Result()
+	if err != nil {
+		return fmt.Errorf("load incr_level.lua: %w", err)
+	}
+	this.incrLevelSha = sha
+	return nil
 }
 
 func (this *OrderRepository) AddToQueue(ctx context.Context, order *entity.Order) error {
@@ -34,26 +56,32 @@ func (this *OrderRepository) AddToQueue(ctx context.Context, order *entity.Order
 		pipe.HSet(ctx, fmt.Sprintf("%s:%s", "order", order.Id), map[string]interface{}{
 			"id":              order.Id,
 			"owner_id":        order.OwnerId,
-			"type":            order.Type,
-			"time_in_force":   order.TimeInForce,
+			"type":            string(order.Type),
+			"time_in_force":   string(order.TimeInForce),
 			"price":           order.Price,
 			"stop":            order.Stop,
 			"filled_quantity": order.FilledQuantity,
-			"class":           order.Class,
-			"product_id":      order.ProductId,
+			"class":           string(order.Class),
 			"quantity":        order.Quantity,
-			"status":          order.Status,
+			"status":          string(order.Status),
 		}),
-		pipe.HIncrBy(ctx, fmt.Sprintf("%s:%s", "book", order.Type), strconv.Itoa(int(order.Price)), order.Quantity),
 	}
 
+	pipe.EvalSha(
+		ctx,
+		this.incrLevelSha,
+		[]string{fmt.Sprintf("%s:%s", "book", order.Type)},
+		strconv.Itoa(int(order.Price)),
+		order.Quantity,
+	)
+
 	if _, err := pipe.Exec(ctx); err != nil {
-		return err
+		return errs.NewRepositoryError("redis pipe execution error", err)
 	}
 
 	for _, cmd := range cmds {
 		if err := cmd.Err(); err != nil {
-			return err //TODO: fix
+			return errs.NewRepositoryError("redis request error", err)
 		}
 	}
 
@@ -65,18 +93,90 @@ func (this *OrderRepository) ProcessEvent(ctx context.Context, event *entity.Eve
 
 	switch event.GetType() {
 	case entity.OrderBeingFilled:
+		payload := event.GetPayload().(entity.OrderBeingFilledPayload)
+		orderKey := fmt.Sprintf("order:%s", payload.Order.Id)
+		bookKey := fmt.Sprintf("book:%s", string(payload.Order.Type))
+
 		pipe := this.conn.Pipeline()
-		pipe.HIncrBy(ctx, fmt.Sprintf("%s:%s", "order", event.GetOrderId()), "filled_quantity", event.GetValue().(int64))
-		pipe.HIncrBy(ctx, fmt.Sprintf("%s:%s", "book", event.GetOrderType()), strconv.Itoa(int(event.GetOrderPrice())), -event.GetValue().(int64))
+		pipe.HSet(ctx, orderKey, "filled_quantity", payload.NewFilledQty)
+		pipe.EvalSha(
+			ctx,
+			this.incrLevelSha,
+			[]string{bookKey},
+			strconv.Itoa(int(payload.Order.Price)),
+			-payload.FilledDelta,
+		)
+
+		_, err = pipe.Exec(ctx)
 
 	case entity.OrderReserveChanged:
-		err = this.conn.HIncrBy(ctx, fmt.Sprintf("%s:%s", "order", event.GetOrderId()), "reserve", -event.GetValue().(int64)).Err()
+		payload := event.GetPayload().(entity.OrderReserveChangedPayload)
+		orderKey := fmt.Sprintf("order:%s", payload.OrderId)
+		err = this.conn.HIncrBy(ctx, orderKey, "reserve", -payload.ReserveDelta).Err()
 
-	default:
-		err = this.conn.HSet(ctx, fmt.Sprintf("%s:%s", "order", event.GetOrderId()), "status", event.GetValue().(string)).Err()
+	case entity.OrderQuantityChanged:
+		payload := event.GetPayload().(entity.OrderQuantityChangedPayload)
+		bookKey := fmt.Sprintf("book:%s", string(payload.OrderType))
+
+		err = this.conn.EvalSha(
+			ctx,
+			this.incrLevelSha,
+			[]string{bookKey},
+			strconv.Itoa(int(payload.Price)),
+			-payload.QuantityDelta,
+		).Err()
+
+	case entity.OrderStatusChanged:
+		payload := event.GetPayload().(entity.OrderStatusChangedPayload)
+		orderKey := fmt.Sprintf("order:%s", payload.OrderId)
+		err = this.conn.HSet(ctx, orderKey, "status", string(payload.Status)).Err()
+
+	case entity.OrderCancelled, entity.OrderRejected, entity.OrderFilled:
+		payload := event.GetPayload().(entity.OrderRemovalPayload)
+		orderKey := fmt.Sprintf("order:%s", payload.Order.Id)
+		bookKey := fmt.Sprintf("book:%s", string(payload.Order.Type))
+		orderBookMember := fmt.Sprintf("%d:%s", payload.Order.CreatedAt.UnixNano(), payload.Order.Id)
+
+		pipe := this.conn.Pipeline()
+		pipe.Del(ctx, orderKey)
+		pipe.ZRem(ctx, string(payload.Order.Type), orderBookMember)
+		pipe.EvalSha(
+			ctx,
+			this.incrLevelSha,
+			[]string{bookKey},
+			strconv.Itoa(int(payload.Order.Price)),
+			-payload.Delta,
+		)
+		_, err = pipe.Exec(ctx)
 	}
 
-	return err
+	if err != nil {
+		return errs.NewRepositoryError("event processing error", err)
+	}
+
+	return nil
+}
+
+func (this *OrderRepository) GetById(ctx context.Context, orderId string) (*entity.Order, error) {
+	fields, err := this.conn.HGetAll(ctx, fmt.Sprintf("%s:%s", "order", orderId)).Result()
+	if err != nil {
+		return nil, errs.NewRepositoryError("redis query execution error", err)
+	}
+
+	var order entity.Order
+	order.Id = fields["id"]
+	order.OwnerId = fields["owner_id"]
+	order.Type = entity.OrderType(fields["type"])
+	order.TimeInForce = entity.OrderTimeInForce(fields["time_in_force"])
+	order.Price, _ = strconv.ParseInt(fields["price"], 10, 64)
+	order.Stop, _ = strconv.ParseBool(fields["stop"])
+	order.FilledQuantity, _ = strconv.ParseInt(fields["filled_quantity"], 10, 64)
+	order.Class = entity.OrderClass(fields["class"])
+	order.Quantity, _ = strconv.ParseInt(fields["quantity"], 10, 64)
+	order.Status = entity.OrderStatus(fields["status"])
+	order.Reserve, _ = strconv.ParseInt(fields["reserve"], 10, 64)
+
+	return &order, nil
 }
 
 func (this *OrderRepository) GetBestPrice(ctx context.Context, orderType entity.OrderType) (int64, error) {
@@ -92,11 +192,11 @@ func (this *OrderRepository) GetBestPrice(ctx context.Context, orderType entity.
 
 	z, err := slice.Result()
 	if err != nil {
-		return -1, err
+		return -1, errs.NewRepositoryError("redis query execution error", err)
 	}
 
 	if len(z) == 0 {
-		return -1, nil
+		return -1, errs.NewRepositoryError("no values in storage", errors.New("empty storage"))
 	}
 
 	return int64(z[0].Score), nil
@@ -107,18 +207,18 @@ func (this *OrderRepository) GetState(ctx context.Context) (asks map[string]stri
 	pipe := this.conn.Pipeline()
 
 	mapCmds := []*redis.MapStringStringCmd{
-		pipe.HGetAll(ctx, fmt.Sprintf("%s:%s", "book", entity.Ask)),
-		pipe.HGetAll(ctx, fmt.Sprintf("%s:%s", "book", entity.Bid)),
+		pipe.HGetAll(ctx, fmt.Sprintf("%s:%s", "book", string(entity.Ask))),
+		pipe.HGetAll(ctx, fmt.Sprintf("%s:%s", "book", string(entity.Bid))),
 	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return nil, nil, err
+		return nil, nil, errs.NewRepositoryError("redis pipe execution error", err)
 	}
 
 	maps := make([]map[string]string, len(mapCmds))
 	for i, cmd := range mapCmds {
 		if m, err := cmd.Result(); err != nil {
-			return nil, nil, err
+			return nil, nil, errs.NewRepositoryError("redis query execution error", err)
 		} else {
 			maps[i] = m
 		}

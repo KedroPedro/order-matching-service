@@ -2,64 +2,110 @@ package repository
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/KedroPedro/order-matching-engine/internal/domain/entity"
 	"github.com/KedroPedro/order-matching-engine/internal/infrastructure/mongodb/types"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 type OrderRepository struct {
-	collection *mongo.Collection
-	modelsCh   chan mongo.WriteModel
-	sendTicker *time.Ticker
+	orderCollection *mongo.Collection
+	eventCollection *mongo.Collection
+	orderModelsCh   chan mongo.WriteModel
+	eventModelsCh   chan mongo.WriteModel
+	sendTicker      *time.Ticker
 }
 
 const (
-	modelsChanBuffer     = 1000
+	modelsChanBuffer     = 10000
 	sendTickerIntervalMS = 300
 	maxSendRetryValue    = 5
 )
 
-func NewOrderRepository(ctx context.Context, orderCollection *mongo.Collection) *OrderRepository {
+func NewOrderRepository(ctx context.Context, orderCollection *mongo.Collection, eventCollection *mongo.Collection) *OrderRepository {
 	newOrderRepository := &OrderRepository{
-		collection: orderCollection,
-		modelsCh:   make(chan mongo.WriteModel, modelsChanBuffer),
-		sendTicker: time.NewTicker(time.Millisecond * sendTickerIntervalMS),
+		orderCollection: orderCollection,
+		eventCollection: eventCollection,
+		orderModelsCh:   make(chan mongo.WriteModel, modelsChanBuffer),
+		eventModelsCh:   make(chan mongo.WriteModel, modelsChanBuffer),
+		sendTicker:      time.NewTicker(time.Millisecond * sendTickerIntervalMS),
 	}
 
 	go func(ctx context.Context) {
-		models := make([]mongo.WriteModel, 0, modelsChanBuffer)
+		orderModels := make([]mongo.WriteModel, 0, modelsChanBuffer)
+		eventModels := make([]mongo.WriteModel, 0, modelsChanBuffer)
+		wg := sync.WaitGroup{}
 
 		for {
 			select {
-			case model, ok := <-newOrderRepository.modelsCh:
+			case model, ok := <-newOrderRepository.orderModelsCh:
 				if !ok {
-					newOrderRepository.sendBulk(ctx, models)
+					wg.Go(func() {
+						sendBulk(ctx, newOrderRepository.orderCollection, orderModels)
+					})
+					wg.Go(func() {
+						sendBulk(ctx, newOrderRepository.eventCollection, eventModels)
+					})
+					wg.Wait()
 					return
 				}
-				models = append(models, model)
+				orderModels = append(orderModels, model)
+
+			case model, ok := <-newOrderRepository.eventModelsCh:
+				if !ok {
+					wg.Go(func() {
+						sendBulk(ctx, newOrderRepository.orderCollection, orderModels)
+					})
+					wg.Go(func() {
+						sendBulk(ctx, newOrderRepository.eventCollection, eventModels)
+					})
+					wg.Wait()
+					return
+				}
+				eventModels = append(eventModels, model)
 
 			case <-newOrderRepository.sendTicker.C:
-				if len(models) == 0 {
-					continue
+
+				if len(orderModels) != 0 {
+					ordersBulk := make([]mongo.WriteModel, len(orderModels))
+					copy(ordersBulk, orderModels)
+					wg.Go(func() {
+						if err := sendBulk(ctx, newOrderRepository.orderCollection, ordersBulk); err != nil {
+							log.Err(err).Send()
+						}
+					})
+
+					orderModels = orderModels[:0]
 				}
 
-				bulk := make([]mongo.WriteModel, len(models))
-				copy(bulk, models)
+				if len(eventModels) != 0 {
+					eventsBulk := make([]mongo.WriteModel, len(eventModels))
+					copy(eventsBulk, eventModels)
 
-				go func(bulk []mongo.WriteModel) {
-					if err := newOrderRepository.sendBulk(ctx, bulk); err != nil {
-						//TODO: add logger
-					}
-				}(bulk)
+					wg.Go(func() {
+						if err := sendBulk(ctx, newOrderRepository.eventCollection, eventsBulk); err != nil {
+							log.Err(err).Send()
+						}
+					})
 
-				models = models[:0]
+					eventModels = eventModels[:0]
+				}
+
+				wg.Wait()
 
 			case <-ctx.Done():
-				newOrderRepository.sendBulk(ctx, models)
+				wg.Go(func() {
+					sendBulk(ctx, newOrderRepository.orderCollection, orderModels)
+				})
+				wg.Go(func() {
+					sendBulk(ctx, newOrderRepository.eventCollection, eventModels)
+				})
+				wg.Wait()
 				return
 			}
 		}
@@ -68,13 +114,13 @@ func NewOrderRepository(ctx context.Context, orderCollection *mongo.Collection) 
 	return newOrderRepository
 }
 
-func (this *OrderRepository) sendBulk(ctx context.Context, bulk []mongo.WriteModel) error {
+func sendBulk(ctx context.Context, collection *mongo.Collection, bulk []mongo.WriteModel) error {
 	var err error = nil
 	for i := 0; i <= maxSendRetryValue; i++ {
 		time.Sleep(time.Millisecond * 100 * time.Duration(i*i))
 
-		if _, err = this.collection.BulkWrite(ctx, bulk); err != nil {
-			//TODO: add logging
+		if _, err = collection.BulkWrite(ctx, bulk); err != nil {
+			log.Err(err).Send()
 			continue
 		} else {
 			break
@@ -88,7 +134,7 @@ func (this *OrderRepository) AddToQueue(ctx context.Context, order *entity.Order
 	insert := createOrderInsertModel(order)
 
 	select {
-	case this.modelsCh <- insert:
+	case this.orderModelsCh <- insert:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -96,46 +142,80 @@ func (this *OrderRepository) AddToQueue(ctx context.Context, order *entity.Order
 }
 
 func (this *OrderRepository) ProcessEvent(ctx context.Context, event *entity.Event) error {
-	models := make([]mongo.WriteModel, 0, 2)
-
-	models = append(models, createEventInsertModel(event))
-
-	models = append(models, createEventUpdateModel(event))
-
-	for _, model := range models {
-		select {
-		case this.modelsCh <- model:
-			continue
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	insertModel := createEventInsertModel(event)
+	select {
+	case this.eventModelsCh <- insertModel:
+	case <-ctx.Done():
+		return ctx.Err()
 	}
+
+	updateModel := createEventUpdateModel(event)
+	select {
+	case this.orderModelsCh <- updateModel:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	return nil
 }
 
 func createEventInsertModel(event *entity.Event) mongo.WriteModel {
+	var orderId string
+	var value any
+
+	switch p := event.GetPayload().(type) {
+	case entity.OrderBeingFilledPayload:
+		orderId = p.Order.Id
+		value = p
+	case entity.OrderReserveChangedPayload:
+		orderId = p.OrderId
+		value = p
+	case entity.OrderQuantityChangedPayload:
+		orderId = p.OrderId
+		value = p
+	case entity.OrderStatusChangedPayload:
+		orderId = p.OrderId
+		value = p
+	case entity.OrderRemovalPayload:
+		orderId = p.Order.Id
+		value = p
+	}
+
 	return mongo.NewInsertOneModel().SetDocument(bson.D{
 		bson.E{Key: "_id", Value: uuid.New().String()},
-		bson.E{Key: "order_id", Value: event.GetOrderId()},
-		bson.E{Key: "value", Value: event.GetValue()},
+		bson.E{Key: "order_id", Value: orderId},
+		bson.E{Key: "value", Value: value},
 		bson.E{Key: "type", Value: event.GetType()},
 	})
 }
 
-func createEventUpdateModel(event *entity.Event) mongo.WriteModel { // TODO: need some changes
-	filter := bson.M{"_id": event.GetOrderId()}
+func createEventUpdateModel(event *entity.Event) mongo.WriteModel {
+	var orderId string
 	var update bson.M
 
-	switch event.GetType() {
-	case entity.OrderReserveChanged:
-		update = bson.M{"$inc": bson.M{"reserve": -event.GetValue().(int)}}
+	switch p := event.GetPayload().(type) {
+	case entity.OrderBeingFilledPayload:
+		orderId = p.Order.Id
+		update = bson.M{"$inc": bson.M{"filled_quantity": p.FilledDelta}}
 
-	case entity.OrderBeingFilled:
-		update = bson.M{"$inc": bson.M{"filled_quantity": event.GetValue().(int)}}
-	default:
-		update = bson.M{"$set": bson.M{"status": event.GetValue()}}
+	case entity.OrderReserveChangedPayload:
+		orderId = p.OrderId
+		update = bson.M{"$inc": bson.M{"reserve": -p.ReserveDelta}}
+
+	case entity.OrderQuantityChangedPayload:
+		orderId = p.OrderId
+		update = bson.M{"$inc": bson.M{"quantity": p.QuantityDelta}}
+
+	case entity.OrderStatusChangedPayload:
+		orderId = p.OrderId
+		update = bson.M{"$set": bson.M{"status": string(p.Status)}}
+
+	case entity.OrderRemovalPayload:
+		orderId = p.Order.Id
+		update = bson.M{"$set": bson.M{"status": string(p.Order.Status)}}
 	}
 
+	filter := bson.M{"_id": orderId}
 	return mongo.NewUpdateOneModel().SetFilter(filter).SetUpdate(update)
 }
 

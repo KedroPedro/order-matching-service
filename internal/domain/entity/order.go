@@ -12,7 +12,6 @@ type Order struct {
 	Class          OrderClass
 	TimeInForce    OrderTimeInForce
 	Status         OrderStatus
-	ProductId      string
 	CreatedAt      time.Time
 	ClosedAt       time.Time
 	Reserve        int64

@@ -1,8 +1,7 @@
 package jwtmanager
 
 import (
-	"errors"
-
+	"github.com/KedroPedro/order-matching-engine/internal/pkg/errs"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -12,22 +11,22 @@ const (
 
 func Encode(id string) (string, error) {
 	t := jwt.NewWithClaims(
-		jwt.SigningMethodES256,
+		jwt.SigningMethodHS256,
 		jwt.MapClaims{
 			"id": id,
 		},
 	)
 
-	return t.SignedString(secretKey)
+	return t.SignedString([]byte(secretKey))
 }
 
 func Decode(signed string) (string, error) {
 	token, err := jwt.Parse(
 		signed,
 		func(t *jwt.Token) (any, error) {
-			return secretKey, nil
+			return []byte(secretKey), nil
 		},
-		jwt.WithValidMethods([]string{jwt.SigningMethodES256.Alg()}),
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
 	)
 
 	if err != nil {
@@ -36,12 +35,12 @@ func Decode(signed string) (string, error) {
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return "", errors.New("error") //TODO: add normal error
+		return "", errs.NewTypeError("converting token.Claims to jwt.MapClaims error")
 	}
 
 	id, ok := claims["id"].(string)
 	if !ok {
-		return "", errors.New("error") //TODO: add normal error
+		return "", errs.NewTypeError("converting claims[\"id\"] to string error")
 	}
 
 	return id, nil
