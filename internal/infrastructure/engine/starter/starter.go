@@ -33,14 +33,19 @@ type Starter struct {
 func New(
 	ctx context.Context,
 ) (*Starter, chan *entity.Event) {
-	orderBook := orderbook.New(
-		skiplist.New(skiplist.AscendingList),
-		skiplist.New(skiplist.DescendingList),
+
+	orderBook := orderbook.NewOrderBook(
+		orderbook.NewBook(
+			skiplist.New(skiplist.AscendingList),
+			skiplist.New(skiplist.DescendingList),
+		),
 	)
 
-	stopBook := orderbook.New(
-		skiplist.New(skiplist.AscendingList),
-		skiplist.New(skiplist.DescendingList),
+	stopBook := orderbook.NewStopOrderBook(
+		orderbook.NewBook(
+			skiplist.New(skiplist.AscendingList),
+			skiplist.New(skiplist.DescendingList),
+		),
 	)
 
 	eventChan := make(chan *entity.Event, engineEventChanBuffer)

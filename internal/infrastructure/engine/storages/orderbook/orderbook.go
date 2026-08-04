@@ -1,109 +1,17 @@
 package orderbook
 
 import (
-	"fmt"
-	"time"
-
 	enginetypes "github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine/engine_types"
 )
 
-type OrderBookStorage interface {
-	Add(order *enginetypes.EngineOrder)
-	GetRange(quantity int64) []*enginetypes.PriceLevel
-	GetFirst() *enginetypes.PriceLevel
-	Delete(level int64)
-}
-
 type OrderBook struct {
-	ask       OrderBookStorage
-	bid       OrderBookStorage
-	orders    map[string]*enginetypes.EngineOrder
-	dayOrders map[string]*enginetypes.EngineOrder
+	Book
 }
 
-func New(askStorage, bidStorage OrderBookStorage) *OrderBook {
+func NewOrderBook(book Book) *OrderBook {
 	return &OrderBook{
-		ask:       askStorage,
-		bid:       bidStorage,
-		orders:    make(map[string]*enginetypes.EngineOrder),
-		dayOrders: make(map[string]*enginetypes.EngineOrder),
+		Book: book,
 	}
-}
-
-func (this *OrderBook) Add(order *enginetypes.EngineOrder) {
-	if order == nil {
-		return
-	}
-
-	switch order.GetType() {
-	case enginetypes.Ask:
-		this.ask.Add(order)
-		this.orders[order.GetId()] = order
-	case enginetypes.Bid:
-		this.bid.Add(order)
-		this.orders[order.GetId()] = order
-	default:
-		return
-	}
-
-	if order.GetTimeInForce() == enginetypes.DAY {
-		this.dayOrders[order.GetId()] = order
-	}
-}
-
-func (this *OrderBook) Remove(orderId string) {
-	if order, ok := this.orders[orderId]; ok {
-		order.Delete()
-		delete(this.orders, orderId)
-		delete(this.dayOrders, orderId)
-	}
-
-}
-
-func (this *OrderBook) CancelDayOrders() {
-	for key, value := range this.dayOrders {
-		value.SetExpiredStatus()
-		this.Remove(key)
-
-		delete(this.orders, key)
-		delete(this.dayOrders, key)
-	}
-}
-
-func (this *OrderBook) Cancel(orderId string) {
-	if order, ok := this.orders[orderId]; ok {
-		order.SetCanceledStatus()
-		order.Delete()
-		delete(this.orders, orderId)
-		delete(this.dayOrders, orderId)
-	}
-}
-
-func (this *OrderBook) GetStopOrders(bestAskLevel, bestBidLevel int64) []*enginetypes.EngineOrder {
-	orders := make([]*enginetypes.EngineOrder, 0)
-	for bestBid := this.bid.GetFirst(); bestBid != nil && bestBidLevel >= bestBid.GetLevel(); bestBid = this.bid.GetFirst() {
-		getOrder := bestBid.GetOrders()
-		for stopOrder := getOrder(); stopOrder != nil; stopOrder = getOrder() {
-			stopOrder.ActivateStopOrder()
-
-			orders = append(orders, stopOrder)
-
-			this.Remove(stopOrder.GetId())
-		}
-	}
-
-	for bestAsk := this.ask.GetFirst(); bestAsk != nil && bestBidLevel <= bestAsk.GetLevel(); bestAsk = this.ask.GetFirst() {
-		getOrder := bestAsk.GetOrders()
-		for stopOrder := getOrder(); stopOrder != nil; stopOrder = getOrder() {
-			stopOrder.ActivateStopOrder()
-
-			orders = append(orders, stopOrder)
-
-			this.Remove(stopOrder.GetId())
-		}
-	}
-
-	return orders
 }
 
 func (this *OrderBook) Match(order *enginetypes.EngineOrder) {

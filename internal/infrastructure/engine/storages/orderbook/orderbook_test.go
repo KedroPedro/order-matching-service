@@ -72,7 +72,9 @@ func TestOrderBook_Add(t *testing.T) {
 			tt.askStorage.On("Add").Return()
 			tt.bidStorage.On("Add").Return()
 
-			book := orderbook.New(tt.askStorage, tt.bidStorage)
+			book := orderbook.NewOrderBook(
+				orderbook.NewBook(tt.askStorage, tt.bidStorage),
+			)
 
 			for _, order := range tt.orders {
 				book.Add(order)
@@ -131,7 +133,9 @@ func TestOrderBook_Remove(t *testing.T) {
 			tt.askStorage.On("Add").Return()
 			tt.bidStorage.On("Add").Return()
 
-			book := orderbook.New(tt.askStorage, tt.bidStorage)
+			book := orderbook.NewOrderBook(
+				orderbook.NewBook(tt.askStorage, tt.bidStorage),
+			)
 
 			for _, order := range tt.orders {
 				if order != nil {
@@ -197,7 +201,9 @@ func TestOrderBook_CancelDayOrders(t *testing.T) {
 			tt.askStorage.On("Add").Return()
 			tt.bidStorage.On("Add").Return()
 
-			book := orderbook.New(tt.askStorage, tt.bidStorage)
+			book := orderbook.NewOrderBook(
+				orderbook.NewBook(tt.askStorage, tt.bidStorage),
+			)
 
 			for _, order := range tt.orders {
 				order.Parent = parent
@@ -260,7 +266,9 @@ func TestOrderBook_Cancel(t *testing.T) {
 			tt.askStorage.On("Add").Return()
 			tt.bidStorage.On("Add").Return()
 
-			book := orderbook.New(tt.askStorage, tt.bidStorage)
+			book := orderbook.NewOrderBook(
+				orderbook.NewBook(tt.askStorage, tt.bidStorage),
+			)
 
 			for _, order := range tt.orders {
 				order.Parent = parent
@@ -331,7 +339,9 @@ func TestOrderBook_GetStopOrders(t *testing.T) {
 
 			tt.setupMocks(tt.askStorage, tt.bidStorage)
 
-			book := orderbook.New(tt.askStorage, tt.bidStorage)
+			book := orderbook.NewStopOrderBook(
+				orderbook.NewBook(tt.askStorage, tt.bidStorage),
+			)
 
 			got := book.GetStopOrders(tt.bestAskLevel, tt.bestBidLevel)
 
@@ -367,7 +377,9 @@ func TestOrderBook_BestBidPrice(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			book := orderbook.New(tt.askStorage, tt.bidStorage)
+			book := orderbook.NewOrderBook(
+				orderbook.NewBook(tt.askStorage, tt.bidStorage),
+			)
 
 			got := book.BestBidPrice()
 
@@ -400,7 +412,9 @@ func TestOrderBook_BestAskPrice(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			book := orderbook.New(tt.askStorage, tt.bidStorage)
+			book := orderbook.NewOrderBook(
+				orderbook.NewBook(tt.askStorage, tt.bidStorage),
+			)
 
 			got := book.BestAskPrice()
 
