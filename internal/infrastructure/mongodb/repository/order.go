@@ -22,7 +22,7 @@ type OrderRepository struct {
 }
 
 const (
-	modelsChanBuffer     = 10000
+	modelsChanBuffer     = 100000
 	sendTickerIntervalMS = 300
 	maxSendRetryValue    = 5
 )

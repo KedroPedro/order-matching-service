@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	engineOrderChanBuffer  = 10000
-	engineCancelChanBuffer = 10000
-	engineEventChanBuffer  = 10000
+	engineOrderChanBuffer  = 100000
+	engineCancelChanBuffer = 100000
+	engineEventChanBuffer  = 100000
 )
 
 type Starter struct {
