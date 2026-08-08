@@ -18,7 +18,7 @@ type Event struct {
 }
 
 type OrderBeingFilledPayload struct {
-	Order        Order
+	Order        *Order
 	FilledDelta  int64
 	NewFilledQty int64
 }
@@ -41,14 +41,14 @@ type OrderStatusChangedPayload struct {
 }
 
 type OrderRemovalPayload struct {
-	Order Order
+	Order *Order
 	Delta int64
 }
 
 func NewOrderBeingFilledEvent(order *Order, filledDelta int64, newFilledQty int64) *Event {
 	return &Event{
 		payload: OrderBeingFilledPayload{
-			Order:        *order,
+			Order:        order,
 			FilledDelta:  filledDelta,
 			NewFilledQty: newFilledQty,
 		},
@@ -90,21 +90,21 @@ func NewOrderStatusChangedEvent(orderId string, status OrderStatus) *Event {
 
 func NewOrderCancelledEvent(order *Order, delta int64) *Event {
 	return &Event{
-		payload:   OrderRemovalPayload{Order: *order, Delta: delta},
+		payload:   OrderRemovalPayload{Order: order, Delta: delta},
 		eventType: OrderCancelled,
 	}
 }
 
 func NewOrderRejectedEvent(order *Order, delta int64) *Event {
 	return &Event{
-		payload:   OrderRemovalPayload{Order: *order, Delta: delta},
+		payload:   OrderRemovalPayload{Order: order, Delta: delta},
 		eventType: OrderRejected,
 	}
 }
 
 func NewOrderFilledEvent(order *Order, delta int64) *Event {
 	return &Event{
-		payload:   OrderRemovalPayload{Order: *order, Delta: delta},
+		payload:   OrderRemovalPayload{Order: order, Delta: delta},
 		eventType: OrderFilled,
 	}
 }
