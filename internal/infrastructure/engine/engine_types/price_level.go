@@ -15,16 +15,16 @@ type PriceLevel struct {
 }
 
 func NewPriceLevel(price, totalQuantity int64, storage OrderStorage, parent Container) *PriceLevel {
-	newPriceLevel := &PriceLevel{
+	newPriceLevel := PriceLevel{
 		price:         price,
 		totalQuantity: totalQuantity,
 		orders:        storage,
 		parent:        parent,
 	}
 
-	storage.SetParent(newPriceLevel)
+	storage.SetParent(&newPriceLevel)
 
-	return newPriceLevel
+	return &newPriceLevel
 }
 
 func (this PriceLevel) GetLevel() int64 {
@@ -36,9 +36,7 @@ func (this PriceLevel) GetQuantity() int64 {
 }
 
 func (this *PriceLevel) Delete() {
-	if this.totalQuantity == 0 {
-		this.parent.Delete()
-	}
+	this.parent.Delete()
 }
 
 func (this *PriceLevel) GetFirst() *EngineOrder {

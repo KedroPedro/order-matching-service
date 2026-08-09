@@ -30,7 +30,7 @@ type MarketStateRepository interface {
 
 type Engine interface {
 	AddToQueue(order *entity.Order) error
-	Cancel(event *entity.Event) error
+	Cancel(orderId string)
 	Close()
 	Open()
 	IsClosed() bool
