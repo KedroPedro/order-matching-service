@@ -15,16 +15,19 @@ const (
 )
 
 const (
-	maxNodeHeight = 16
+	maxNodeHeight              = 16
+	nodesMapDefaultSize        = 128
+	priceLevelSliceDefaultSize = 16
 )
 
 type SkipList struct {
-	Head          *SkipNode
-	Size          int64
-	TotalQuantity int64
-	compare       func(i, j int64) bool
-	nodes         map[int64]*SkipNode
-	maxHeight     int16
+	Head             *SkipNode
+	Size             int64
+	TotalQuantity    int64
+	compare          func(i, j int64) bool
+	nodes            map[int64]*SkipNode
+	maxHeight        int16
+	priceLevelBuffer []*enginetypes.PriceLevel
 }
 
 type SkipNode struct {
@@ -35,10 +38,11 @@ type SkipNode struct {
 
 func New(listType ListType) *SkipList {
 	newSkipList := &SkipList{
-		Size:          0,
-		TotalQuantity: 0,
-		maxHeight:     1,
-		nodes:         make(map[int64]*SkipNode),
+		Size:             0,
+		TotalQuantity:    0,
+		maxHeight:        1,
+		nodes:            make(map[int64]*SkipNode, nodesMapDefaultSize),
+		priceLevelBuffer: make([]*enginetypes.PriceLevel, 0, priceLevelSliceDefaultSize),
 	}
 
 	newSkipList.Head = &SkipNode{
@@ -69,7 +73,7 @@ func (this *SkipList) Add(order *enginetypes.EngineOrder) {
 	newNode := &SkipNode{
 		Parent: this,
 	}
-	newLevel := enginetypes.NewPriceLevel(order.GetLevel(), 0, &doublylinkedlist.DoublyLinkedList{}, newNode)
+	newLevel := enginetypes.NewPriceLevel(order.GetLevel(), &doublylinkedlist.DoublyLinkedList{}, newNode)
 	newNode.Level = newLevel
 
 	newLevel.Add(order)
@@ -97,24 +101,23 @@ func (this *SkipList) Add(order *enginetypes.EngineOrder) {
 }
 
 func (this *SkipList) GetRange(quantity int64, price int64) []*enginetypes.PriceLevel {
-	var values []*enginetypes.PriceLevel
+	this.priceLevelBuffer = this.priceLevelBuffer[:0]
 
 	if this.Head.forward[0] != nil {
-		values = make([]*enginetypes.PriceLevel, 0, 4)
 		curr := this.Head.forward[0]
 		for quantity > 0 && curr != nil {
 
-			if this.compare(curr.Level.GetLevel(), price) || curr.Level.GetLevel() != price {
+			if !this.compare(curr.Level.GetLevel(), price) && curr.Level.GetLevel() != price {
 				break
 			}
 			quantity -= curr.Level.GetQuantity()
-			values = append(values, curr.Level)
+			this.priceLevelBuffer = append(this.priceLevelBuffer, curr.Level)
 
 			curr = curr.forward[0]
 		}
 	}
 
-	return values
+	return this.priceLevelBuffer
 }
 
 func (this *SkipList) GetFirst() *enginetypes.PriceLevel {
