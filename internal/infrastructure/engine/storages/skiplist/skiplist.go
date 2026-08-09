@@ -22,13 +22,13 @@ type SkipList struct {
 	Head          *SkipNode
 	Size          int64
 	TotalQuantity int64
-	maxHeight     int16
 	compare       func(i, j int64) bool
 	nodes         map[int64]*SkipNode
+	maxHeight     int16
 }
 
 type SkipNode struct {
-	forward []*SkipNode
+	forward [maxNodeHeight]*SkipNode
 	Parent  *SkipList
 	Level   *enginetypes.PriceLevel
 }
@@ -42,9 +42,8 @@ func New(listType ListType) *SkipList {
 	}
 
 	newSkipList.Head = &SkipNode{
-		forward: make([]*SkipNode, maxNodeHeight),
-		Parent:  newSkipList,
-		Level:   nil,
+		Parent: newSkipList,
+		Level:  nil,
 	}
 
 	switch listType {
@@ -68,8 +67,7 @@ func (this *SkipList) Add(order *enginetypes.EngineOrder) {
 	}
 
 	newNode := &SkipNode{
-		forward: make([]*SkipNode, maxNodeHeight),
-		Parent:  this,
+		Parent: this,
 	}
 	newLevel := enginetypes.NewPriceLevel(order.GetLevel(), 0, &doublylinkedlist.DoublyLinkedList{}, newNode)
 	newNode.Level = newLevel
@@ -98,14 +96,18 @@ func (this *SkipList) Add(order *enginetypes.EngineOrder) {
 	this.Size++
 }
 
-func (this *SkipList) GetRange(quantity int64) []*enginetypes.PriceLevel {
-	var currQuantity int64 = 0
-	values := make([]*enginetypes.PriceLevel, 0)
+func (this *SkipList) GetRange(quantity int64, price int64) []*enginetypes.PriceLevel {
+	var values []*enginetypes.PriceLevel
 
 	if this.Head.forward[0] != nil {
+		values = make([]*enginetypes.PriceLevel, 0, 4)
 		curr := this.Head.forward[0]
-		for currQuantity < quantity && curr != nil {
-			currQuantity += curr.Level.GetQuantity()
+		for quantity > 0 && curr != nil {
+
+			if this.compare(curr.Level.GetLevel(), price) || curr.Level.GetLevel() != price {
+				break
+			}
+			quantity -= curr.Level.GetQuantity()
 			values = append(values, curr.Level)
 
 			curr = curr.forward[0]
