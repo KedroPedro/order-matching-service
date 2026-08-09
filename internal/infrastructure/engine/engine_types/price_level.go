@@ -14,10 +14,10 @@ type PriceLevel struct {
 	parent        Container
 }
 
-func NewPriceLevel(price, totalQuantity int64, storage OrderStorage, parent Container) *PriceLevel {
+func NewPriceLevel(price int64, storage OrderStorage, parent Container) *PriceLevel {
 	newPriceLevel := PriceLevel{
 		price:         price,
-		totalQuantity: totalQuantity,
+		totalQuantity: 0,
 		orders:        storage,
 		parent:        parent,
 	}
