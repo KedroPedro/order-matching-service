@@ -1,6 +1,9 @@
 package orderbook
 
-import enginetypes "github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine/engine_types"
+import (
+	eventbatch "github.com/KedroPedro/order-matching-engine/internal/application/event_handler/event_batch"
+	enginetypes "github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine/engine_types"
+)
 
 type Book struct {
 	ask       BookStorage
@@ -47,18 +50,18 @@ func (this *Book) Remove(orderId string) {
 	}
 }
 
-func (this *Book) CancelDayOrders() {
+func (this *Book) CancelDayOrders(eventBatch *eventbatch.EventBatch) {
 	for key, value := range this.dayOrders {
-		value.SetExpiredStatus()
+		eventBatch.Add(value.SetExpiredStatus())
 		value.Delete()
 		delete(this.orders, key)
 		delete(this.dayOrders, key)
 	}
 }
 
-func (this *Book) Cancel(orderId string) {
+func (this *Book) Cancel(orderId string, eventBatch *eventbatch.EventBatch) {
 	if order, ok := this.orders[orderId]; ok {
-		order.SetCanceledStatus()
+		eventBatch.Add(order.SetCanceledStatus())
 		order.Delete()
 		delete(this.orders, orderId)
 		delete(this.dayOrders, orderId)

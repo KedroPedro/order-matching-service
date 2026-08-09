@@ -5,23 +5,24 @@ import (
 	"sync"
 	"time"
 
-	"github.com/KedroPedro/order-matching-engine/internal/domain/entity"
+	eventbatch "github.com/KedroPedro/order-matching-engine/internal/application/event_handler/event_batch"
+
 	"github.com/KedroPedro/order-matching-engine/internal/domain/interfaces"
 	"github.com/rs/zerolog/log"
 )
 
 type EventHandler struct {
-	eventCh    <-chan *entity.Event
+	eventCh    <-chan *eventbatch.EventBatch
 	marketRepo interfaces.MarketStateRepository
 	orderRepo  interfaces.OrderRepository
 	started    bool
 }
 
 const (
-	eventProcessorsNumber = 1 //when more than 1 can cause a race conditions
+	eventProcessorsNumber = 4
 )
 
-func NewEventHandler(eventCh chan *entity.Event, marketRepo interfaces.MarketStateRepository, orderRepo interfaces.OrderRepository) *EventHandler {
+func NewEventHandler(eventCh chan *eventbatch.EventBatch, marketRepo interfaces.MarketStateRepository, orderRepo interfaces.OrderRepository) *EventHandler {
 	return &EventHandler{
 		eventCh:    eventCh,
 		marketRepo: marketRepo,
@@ -51,26 +52,30 @@ func (this *EventHandler) Start(ctx context.Context) {
 func (this *EventHandler) processEvent(ctx context.Context) {
 	for {
 		select {
-		case event, ok := <-this.eventCh:
+		case batch, ok := <-this.eventCh:
 			if !ok {
 				return
 			}
 
-			fCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-			if err := this.marketRepo.ProcessEvent(fCtx, event); err != nil {
+			events := batch.GetEvents()
+
+			for i := range events {
+
+				fCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+				if err := this.marketRepo.ProcessEvent(fCtx, &events[i]); err != nil {
+					cancel()
+					log.Err(err).Stack().Send()
+					continue
+				}
+
+				if err := this.orderRepo.ProcessEvent(fCtx, &events[i]); err != nil {
+					cancel()
+					log.Err(err).Stack().Send()
+					continue
+				}
+
 				cancel()
-				log.Err(err).Stack().Send()
-				continue
 			}
-
-			if err := this.orderRepo.ProcessEvent(fCtx, event); err != nil {
-				cancel()
-				log.Err(err).Stack().Send()
-				continue
-			}
-
-			cancel()
-
 		case <-ctx.Done():
 			return
 		}

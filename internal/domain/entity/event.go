@@ -45,8 +45,8 @@ type OrderRemovalPayload struct {
 	Delta int64
 }
 
-func NewOrderBeingFilledEvent(order *Order, filledDelta int64, newFilledQty int64) *Event {
-	return &Event{
+func NewOrderBeingFilledEvent(order *Order, filledDelta int64, newFilledQty int64) Event {
+	return Event{
 		payload: OrderBeingFilledPayload{
 			Order:        order,
 			FilledDelta:  filledDelta,
@@ -56,8 +56,8 @@ func NewOrderBeingFilledEvent(order *Order, filledDelta int64, newFilledQty int6
 	}
 }
 
-func NewOrderReserveChangedEvent(orderId string, reserveDelta int64) *Event {
-	return &Event{
+func NewOrderReserveChangedEvent(orderId string, reserveDelta int64) Event {
+	return Event{
 		payload: OrderReserveChangedPayload{
 			OrderId:      orderId,
 			ReserveDelta: reserveDelta,
@@ -66,8 +66,8 @@ func NewOrderReserveChangedEvent(orderId string, reserveDelta int64) *Event {
 	}
 }
 
-func NewOrderQuantityChangedEvent(orderId string, quantityDelta int64, price int64, orderType OrderType) *Event {
-	return &Event{
+func NewOrderQuantityChangedEvent(orderId string, quantityDelta int64, price int64, orderType OrderType) Event {
+	return Event{
 		payload: OrderQuantityChangedPayload{
 			OrderId:       orderId,
 			QuantityDelta: quantityDelta,
@@ -78,8 +78,8 @@ func NewOrderQuantityChangedEvent(orderId string, quantityDelta int64, price int
 	}
 }
 
-func NewOrderStatusChangedEvent(orderId string, status OrderStatus) *Event {
-	return &Event{
+func NewOrderStatusChangedEvent(orderId string, status OrderStatus) Event {
+	return Event{
 		payload: OrderStatusChangedPayload{
 			OrderId: orderId,
 			Status:  status,
@@ -88,22 +88,22 @@ func NewOrderStatusChangedEvent(orderId string, status OrderStatus) *Event {
 	}
 }
 
-func NewOrderCancelledEvent(order *Order, delta int64) *Event {
-	return &Event{
+func NewOrderCancelledEvent(order *Order, delta int64) Event {
+	return Event{
 		payload:   OrderRemovalPayload{Order: order, Delta: delta},
 		eventType: OrderCancelled,
 	}
 }
 
-func NewOrderRejectedEvent(order *Order, delta int64) *Event {
-	return &Event{
+func NewOrderRejectedEvent(order *Order, delta int64) Event {
+	return Event{
 		payload:   OrderRemovalPayload{Order: order, Delta: delta},
 		eventType: OrderRejected,
 	}
 }
 
-func NewOrderFilledEvent(order *Order, delta int64) *Event {
-	return &Event{
+func NewOrderFilledEvent(order *Order, delta int64) Event {
+	return Event{
 		payload:   OrderRemovalPayload{Order: order, Delta: delta},
 		eventType: OrderFilled,
 	}
