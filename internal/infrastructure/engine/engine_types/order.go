@@ -135,6 +135,10 @@ func (this EngineOrder) GetReserve() int64 {
 func (this *EngineOrder) Fill(quantity, price int64) (unfilled int64, rest int64, events []entity.Event) {
 	events = make([]entity.Event, 0, 4)
 
+	if price <= 0 {
+		return this.order.Quantity - this.order.FilledQuantity, quantity, events
+	}
+
 	requested := quantity
 
 	if maxQuantity := this.order.Reserve / price; maxQuantity < quantity {
