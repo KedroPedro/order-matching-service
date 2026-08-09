@@ -7,7 +7,7 @@ import (
 
 type BookStorage interface {
 	Add(order *enginetypes.EngineOrder)
-	GetRange(quantity int64, price int64) []enginetypes.PriceLevel
+	GetRange(quantity int64, price int64) []*enginetypes.PriceLevel
 	GetFirst() *enginetypes.PriceLevel
 	Delete(level int64)
 }
