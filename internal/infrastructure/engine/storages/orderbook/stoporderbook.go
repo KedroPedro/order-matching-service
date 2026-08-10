@@ -16,8 +16,8 @@ func NewStopOrderBook(book Book) *StopOrderBook {
 func (this *StopOrderBook) GetStopOrders(bestAskLevel, bestBidLevel int64) []*enginetypes.EngineOrder {
 	orders := make([]*enginetypes.EngineOrder, 0)
 	for bestBid := this.bid.GetFirst(); bestBid != nil && bestBidLevel >= bestBid.GetLevel(); bestBid = this.bid.GetFirst() {
-		getOrder := bestBid.GetOrders()
-		for stopOrder := getOrder(); stopOrder != nil; stopOrder = getOrder() {
+		getOrder := bestBid.GetOrdersIterator()
+		for stopOrder := getOrder.Next(); stopOrder != nil; stopOrder = getOrder.Next() {
 			stopOrder.ActivateStopOrder()
 
 			orders = append(orders, stopOrder)
@@ -27,8 +27,8 @@ func (this *StopOrderBook) GetStopOrders(bestAskLevel, bestBidLevel int64) []*en
 	}
 
 	for bestAsk := this.ask.GetFirst(); bestAsk != nil && bestBidLevel <= bestAsk.GetLevel(); bestAsk = this.ask.GetFirst() {
-		getOrder := bestAsk.GetOrders()
-		for stopOrder := getOrder(); stopOrder != nil; stopOrder = getOrder() {
+		getOrder := bestAsk.GetOrdersIterator()
+		for stopOrder := getOrder.Next(); stopOrder != nil; stopOrder = getOrder.Next() {
 			stopOrder.ActivateStopOrder()
 
 			orders = append(orders, stopOrder)

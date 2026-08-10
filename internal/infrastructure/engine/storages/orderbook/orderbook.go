@@ -62,22 +62,35 @@ func (this *OrderBook) Match(order *enginetypes.EngineOrder, eventBatch *eventba
 			break
 		}
 
-		_, rest, fillEvents := order.Fill(levels[i].GetQuantity(), levels[i].GetLevel())
-		eventBatch.AddMany(fillEvents...)
+		var usedQuantity int64
 
-		usedQuantity := levels[i].GetQuantity() - rest
+		if order.GetUnfilledQuantity() < levels[i].GetQuantity() {
+			usedQuantity = order.GetUnfilledQuantity()
+			eventBatch.Add(order.Fill(usedQuantity, levels[i].GetLevel()))
+		} else {
+			usedQuantity = levels[i].GetQuantity()
+			eventBatch.Add(order.Fill(usedQuantity, levels[i].GetLevel()))
+		}
 
-		orderIter := levels[i].GetOrders()
+		if order.GetUnfilledQuantity() == 0 {
+			eventBatch.Add(order.SetFilledStatus())
+		}
+
+		orderIter := levels[i].GetOrdersIterator()
 
 		levels[i].DecreaseQuantity(usedQuantity)
 
-		for filledOrder := orderIter(); filledOrder != nil && usedQuantity > 0; filledOrder = orderIter() {
-			_, rest, fillEvents := filledOrder.Fill(usedQuantity, filledOrder.GetLevel())
-			eventBatch.AddMany(fillEvents...)
+		for filledOrder := orderIter.Next(); filledOrder != nil && usedQuantity > 0; filledOrder = orderIter.Next() {
+			if filledOrder.GetUnfilledQuantity() < usedQuantity {
+				usedQuantity -= filledOrder.GetUnfilledQuantity()
+				eventBatch.Add(filledOrder.Fill(filledOrder.GetUnfilledQuantity(), levels[i].GetLevel()))
+			} else {
+				eventBatch.Add(filledOrder.Fill(usedQuantity, levels[i].GetLevel()))
+				usedQuantity = 0
+			}
 
-			usedQuantity -= usedQuantity - rest
-
-			if filledOrder.GetStatus() == enginetypes.Filled {
+			if filledOrder.GetUnfilledQuantity() == 0 {
+				eventBatch.Add(filledOrder.SetFilledStatus())
 				this.Remove(filledOrder.GetId())
 			}
 		}
