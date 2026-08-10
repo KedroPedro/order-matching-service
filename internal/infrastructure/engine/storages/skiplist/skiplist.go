@@ -67,6 +67,7 @@ func (this *SkipList) Add(order *enginetypes.EngineOrder) {
 
 	if level, ok := this.nodes[order.GetLevel()]; ok {
 		level.Level.Add(order)
+		level.Level.IncreaseQuantity(order.GetUnfilledQuantity())
 		return
 	}
 
@@ -95,6 +96,7 @@ func (this *SkipList) Add(order *enginetypes.EngineOrder) {
 			curr.forward[i] = newNode
 		}
 	}
+	newLevel.IncreaseQuantity(order.GetUnfilledQuantity())
 
 	this.nodes[order.GetLevel()] = newNode
 	this.Size++
