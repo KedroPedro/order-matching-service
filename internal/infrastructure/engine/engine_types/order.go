@@ -132,41 +132,11 @@ func (this EngineOrder) GetReserve() int64 {
 	return this.order.Reserve
 }
 
-func (this *EngineOrder) Fill(quantity, price int64) (unfilled int64, rest int64, events []entity.Event) {
-	events = make([]entity.Event, 0, 4)
+func (this *EngineOrder) Fill(quantity, price int64) (events entity.Event) {
+	this.order.FilledQuantity += quantity
+	this.order.Reserve -= quantity * price
 
-	if price <= 0 {
-		return this.order.Quantity - this.order.FilledQuantity, quantity, events
-	}
-
-	requested := quantity
-
-	if maxQuantity := this.order.Reserve / price; maxQuantity < quantity {
-		quantity = maxQuantity
-	}
-
-	events = append(events, this.SetPartiallyFilledStatus())
-
-	diff := this.order.Quantity - this.order.FilledQuantity - quantity
-	if diff > 0 {
-		this.order.FilledQuantity += quantity
-		this.order.Reserve -= quantity * price
-		events = append(events, this.fillOrderEvent(quantity, price)...)
-		return diff, requested - quantity, events
-	} else if diff < 0 {
-		remaining := this.order.Quantity - this.order.FilledQuantity
-		this.order.FilledQuantity = this.order.Quantity
-		this.order.Reserve -= remaining * price
-		events = append(events, this.SetFilledStatus())
-		events = append(events, this.fillOrderEvent(remaining, price)...)
-		return 0, requested - remaining, events
-	} else {
-		this.order.FilledQuantity += quantity
-		this.order.Reserve -= quantity * price
-		events = append(events, this.fillOrderEvent(quantity, price)...)
-		events = append(events, this.SetFilledStatus())
-		return 0, requested - quantity, events
-	}
+	return entity.NewOrderBeingFilledEvent(this.order, quantity, this.order.FilledQuantity, quantity*price)
 }
 
 func (this EngineOrder) GetStatus() EngineOrderStatus {
@@ -223,13 +193,6 @@ func (this *EngineOrder) SetPartiallyFilledStatus() entity.Event {
 func (this *EngineOrder) SetFilledStatus() entity.Event {
 	this.order.Status = entity.Filled
 	return entity.NewOrderFilledEvent(this.order, this.order.Quantity-this.order.FilledQuantity)
-}
-
-func (this *EngineOrder) fillOrderEvent(quantity, price int64) []entity.Event {
-	return []entity.Event{
-		entity.NewOrderBeingFilledEvent(this.order, quantity, this.order.FilledQuantity),
-		entity.NewOrderReserveChangedEvent(this.order.Id, quantity*price),
-	}
 }
 
 func (this *EngineOrder) Delete() {
