@@ -13,106 +13,90 @@ const (
 )
 
 type Event struct {
-	payload   any
-	eventType EventType
-}
-
-type OrderBeingFilledPayload struct {
+	Type         EventType
 	Order        *Order
+	OrderId      string
+	Price        int64
+	Quantity     int64
 	FilledDelta  int64
 	NewFilledQty int64
-}
-
-type OrderReserveChangedPayload struct {
-	OrderId      string
+	Delta        int64
+	Status       OrderStatus
+	OrderType    OrderType
 	ReserveDelta int64
 }
 
-type OrderQuantityChangedPayload struct {
-	OrderId       string
-	QuantityDelta int64
-	Price         int64
-	OrderType     OrderType
-}
-
-type OrderStatusChangedPayload struct {
-	OrderId string
-	Status  OrderStatus
-}
-
-type OrderRemovalPayload struct {
-	Order *Order
-	Delta int64
-}
-
-func NewOrderBeingFilledEvent(order *Order, filledDelta int64, newFilledQty int64) Event {
+func NewOrderBeingFilledEvent(order *Order, filledDelta int64, newFilledQty int64, reserveDelta int64) Event {
 	return Event{
-		payload: OrderBeingFilledPayload{
-			Order:        order,
-			FilledDelta:  filledDelta,
-			NewFilledQty: newFilledQty,
-		},
-		eventType: OrderBeingFilled,
-	}
-}
-
-func NewOrderReserveChangedEvent(orderId string, reserveDelta int64) Event {
-	return Event{
-		payload: OrderReserveChangedPayload{
-			OrderId:      orderId,
-			ReserveDelta: reserveDelta,
-		},
-		eventType: OrderReserveChanged,
+		Type:         OrderBeingFilled,
+		Order:        order,
+		FilledDelta:  filledDelta,
+		NewFilledQty: newFilledQty,
+		ReserveDelta: reserveDelta,
 	}
 }
 
 func NewOrderQuantityChangedEvent(orderId string, quantityDelta int64, price int64, orderType OrderType) Event {
 	return Event{
-		payload: OrderQuantityChangedPayload{
-			OrderId:       orderId,
-			QuantityDelta: quantityDelta,
-			Price:         price,
-			OrderType:     orderType,
-		},
-		eventType: OrderQuantityChanged,
+		Type:      OrderQuantityChanged,
+		OrderId:   orderId,
+		Quantity:  quantityDelta,
+		Price:     price,
+		OrderType: orderType,
 	}
 }
 
 func NewOrderStatusChangedEvent(orderId string, status OrderStatus) Event {
 	return Event{
-		payload: OrderStatusChangedPayload{
-			OrderId: orderId,
-			Status:  status,
-		},
-		eventType: OrderStatusChanged,
+		Type:    OrderStatusChanged,
+		OrderId: orderId,
+		Status:  status,
 	}
 }
 
 func NewOrderCancelledEvent(order *Order, delta int64) Event {
 	return Event{
-		payload:   OrderRemovalPayload{Order: order, Delta: delta},
-		eventType: OrderCancelled,
+		Type:  OrderCancelled,
+		Order: order,
+		Delta: delta,
 	}
 }
 
 func NewOrderRejectedEvent(order *Order, delta int64) Event {
 	return Event{
-		payload:   OrderRemovalPayload{Order: order, Delta: delta},
-		eventType: OrderRejected,
+		Type:  OrderRejected,
+		Order: order,
+		Delta: delta,
 	}
 }
 
 func NewOrderFilledEvent(order *Order, delta int64) Event {
 	return Event{
-		payload:   OrderRemovalPayload{Order: order, Delta: delta},
-		eventType: OrderFilled,
+		Type:  OrderFilled,
+		Order: order,
+		Delta: delta,
 	}
 }
 
-func (e *Event) GetType() EventType {
-	return e.eventType
+func NewOrderReserveChangedEvent(orderId string, reserveDelta int64) Event {
+	return Event{
+		Type:         OrderReserveChanged,
+		OrderId:      orderId,
+		ReserveDelta: reserveDelta,
+	}
 }
 
-func (e *Event) GetPayload() any {
-	return e.payload
+func (e Event) GetType() EventType {
+	return e.Type
+}
+
+func (e Event) GetOrder() *Order {
+	return e.Order
+}
+
+func (e Event) GetOrderId() string {
+	if e.Order != nil {
+		return e.Order.Id
+	}
+	return e.OrderId
 }
