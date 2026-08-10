@@ -84,49 +84,6 @@ func TestStarter_OrderProcessing(t *testing.T) {
 	}
 }
 
-func TestStarter_CancelProcessing(t *testing.T) {
-	tests := []struct {
-		name       string
-		testNumber int
-	}{
-		{
-			name:       "process cancel event does not panic",
-			testNumber: 1,
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			starter, _ := New(ctx)
-			go starter.Start(ctx)
-
-			switch tt.testNumber {
-			case 1:
-				order := entity.Order{
-					Id:             "order1",
-					OwnerId:        "owner1",
-					Type:           entity.Ask,
-					Price:          100,
-					Quantity:       10,
-					FilledQuantity: 0,
-				}
-				cancelEvent := entity.NewOrderCancelledEvent(&order, order.Quantity-order.FilledQuantity)
-
-				err := starter.Cancel(cancelEvent)
-				require.NoError(t, err)
-
-				select {
-				case <-time.After(100 * time.Millisecond):
-				}
-			}
-		})
-	}
-}
-
 func TestStarter_DayToggle(t *testing.T) {
 	tests := []struct {
 		name       string

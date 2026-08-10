@@ -22,6 +22,7 @@ func NewRouter(
 	engine interfaces.Engine,
 	orderRepo interfaces.OrderRepository,
 	userRepo interfaces.UserRepository,
+	sessionRepo interfaces.SessionRepository,
 ) *Router {
 	getStateUsecase := usecases.NewGetStateUsecase(marketRepo)
 	addOrderUsecase := usecases.NewAddOrderUsecase(orderRepo, userRepo, marketRepo, engine)
@@ -32,7 +33,7 @@ func NewRouter(
 	r := &Router{
 		marketHandler: handlers.NewMarketStateHandler(ctx, getStateUsecase, &mux),
 		ordersHandler: handlers.NewOrdersHandler(addOrderUsecase, cancelOrderUsecase, &mux),
-		usersHandler:  handlers.NewUsersHandler(&mux, usecases.NewCreateUserUsecase(userRepo), usecases.NewLoginUsecase(userRepo)),
+		usersHandler:  handlers.NewUsersHandler(&mux, usecases.NewCreateUserUsecase(userRepo), usecases.NewLoginUsecase(userRepo, sessionRepo)),
 		mux:           &mux,
 	}
 

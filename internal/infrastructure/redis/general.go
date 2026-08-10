@@ -65,3 +65,7 @@ func NewClient() (*Client, error) {
 func (this *Client) NewMarketRepository() interfaces.MarketStateRepository {
 	return repository.NewOrderRepository(this.client)
 }
+
+func (this *Client) NewSessionRepository() interfaces.SessionRepository {
+	return repository.NewSessionRepository(this.client)
+}

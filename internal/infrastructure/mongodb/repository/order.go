@@ -188,7 +188,8 @@ func createEventInsertModel(event *entity.Event) mongo.WriteModel {
 	case entity.OrderCancelled, entity.OrderRejected, entity.OrderFilled:
 		orderId = event.GetOrderId()
 		value = bson.M{
-			"delta": event.Delta,
+			"delta":  event.Delta,
+			"status": string(event.Status),
 		}
 
 	case entity.OrderReserveChanged:
@@ -214,17 +215,12 @@ func createEventUpdateModel(event *entity.Event) mongo.WriteModel {
 	case entity.OrderBeingFilled:
 		orderId = event.GetOrderId()
 		update = bson.M{
+			"$set": bson.M{
+				"status": string(event.Status),
+			},
 			"$inc": bson.M{
 				"filled_quantity": event.FilledDelta,
 				"reserve":         -event.ReserveDelta,
-			},
-		}
-
-	case entity.OrderQuantityChanged:
-		orderId = event.OrderId
-		update = bson.M{
-			"$inc": bson.M{
-				"quantity": event.Quantity,
 			},
 		}
 

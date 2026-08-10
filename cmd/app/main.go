@@ -35,6 +35,7 @@ func main() {
 
 	orderRepo := mongoClient.NewOrderRepository(appCtx)
 	userRepo := mongoClient.NewUserRepository()
+	sessionRepo := redisClient.NewSessionRepository()
 
 	appWg := sync.WaitGroup{}
 
@@ -62,6 +63,7 @@ func main() {
 		engineClient,
 		orderRepo,
 		userRepo,
+		sessionRepo,
 	)
 
 	if err := SetupServer(router); err != nil {

@@ -30,19 +30,10 @@ func NewOrderBeingFilledEvent(order *Order, filledDelta int64, newFilledQty int6
 	return Event{
 		Type:         OrderBeingFilled,
 		Order:        order,
+		Status:       order.Status,
 		FilledDelta:  filledDelta,
 		NewFilledQty: newFilledQty,
 		ReserveDelta: reserveDelta,
-	}
-}
-
-func NewOrderQuantityChangedEvent(orderId string, quantityDelta int64, price int64, orderType OrderType) Event {
-	return Event{
-		Type:      OrderQuantityChanged,
-		OrderId:   orderId,
-		Quantity:  quantityDelta,
-		Price:     price,
-		OrderType: orderType,
 	}
 }
 
@@ -56,33 +47,28 @@ func NewOrderStatusChangedEvent(orderId string, status OrderStatus) Event {
 
 func NewOrderCancelledEvent(order *Order, delta int64) Event {
 	return Event{
-		Type:  OrderCancelled,
-		Order: order,
-		Delta: delta,
+		Type:   OrderCancelled,
+		Status: order.Status,
+		Order:  order,
+		Delta:  delta,
 	}
 }
 
 func NewOrderRejectedEvent(order *Order, delta int64) Event {
 	return Event{
-		Type:  OrderRejected,
-		Order: order,
-		Delta: delta,
+		Type:   OrderRejected,
+		Status: order.Status,
+		Order:  order,
+		Delta:  delta,
 	}
 }
 
 func NewOrderFilledEvent(order *Order, delta int64) Event {
 	return Event{
-		Type:  OrderFilled,
-		Order: order,
-		Delta: delta,
-	}
-}
-
-func NewOrderReserveChangedEvent(orderId string, reserveDelta int64) Event {
-	return Event{
-		Type:         OrderReserveChanged,
-		OrderId:      orderId,
-		ReserveDelta: reserveDelta,
+		Type:   OrderFilled,
+		Status: order.Status,
+		Order:  order,
+		Delta:  delta,
 	}
 }
 

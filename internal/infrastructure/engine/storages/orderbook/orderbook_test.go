@@ -3,9 +3,11 @@ package orderbook_test
 import (
 	"testing"
 
+	eventbatch "github.com/KedroPedro/order-matching-engine/internal/application/event_handler/event_batch"
 	"github.com/KedroPedro/order-matching-engine/internal/domain/entity"
 	enginetypes "github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine/engine_types"
 	"github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine/storages/orderbook"
+	"github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine/storages/skiplist"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +30,7 @@ func (this *BookStorageMock) Add(order *enginetypes.EngineOrder) {
 	this.Called()
 }
 
-func (this *BookStorageMock) GetRange(quantity int64) []*enginetypes.PriceLevel {
+func (this *BookStorageMock) GetRange(quantity int64, price int64) []*enginetypes.PriceLevel {
 	return nil
 }
 
@@ -43,12 +45,12 @@ func TestOrderBook_Add(t *testing.T) {
 
 	firstOrder := enginetypes.NewEngineOrder(
 		&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok},
-		make(chan<- *entity.Event),
+		nil,
 	)
 
 	secondOrder := enginetypes.NewEngineOrder(
 		&entity.Order{Id: "2", Type: entity.Bid, TimeInForce: entity.Day},
-		make(chan<- *entity.Event),
+		nil,
 	)
 
 	tests := []struct {
@@ -106,7 +108,7 @@ func TestOrderBook_Remove(t *testing.T) {
 
 	firstOrder := enginetypes.NewEngineOrder(
 		&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok},
-		make(chan<- *entity.Event),
+		nil,
 	)
 
 	tests := []struct {
@@ -127,7 +129,6 @@ func TestOrderBook_Remove(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			parent := &ParentMock{}
-
 			parent.On("Delete").Return()
 
 			tt.askStorage.On("Add").Return()
@@ -149,21 +150,18 @@ func TestOrderBook_Remove(t *testing.T) {
 			switch tt.testNumber {
 			case 1:
 				parent.AssertNotCalled(t, "Delete")
-
 			case 2:
 				parent.AssertCalled(t, "Delete")
-
 			case 3:
 				parent.AssertNotCalled(t, "Delete")
-
 			}
-
 		})
 	}
 }
 
 func TestOrderBook_CancelDayOrders(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name       string
 		askStorage *BookStorageMock
@@ -171,21 +169,33 @@ func TestOrderBook_CancelDayOrders(t *testing.T) {
 		orders     []*enginetypes.EngineOrder
 		testNumber int
 	}{
-		{name: "no day orders", testNumber: 1, askStorage: &BookStorageMock{}, bidStorage: &BookStorageMock{}, orders: []*enginetypes.EngineOrder{
-			enginetypes.NewEngineOrder(
-				&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok, Status: entity.New},
-				make(chan<- *entity.Event),
-			)},
+		{
+			name:       "no day orders",
+			testNumber: 1,
+			askStorage: &BookStorageMock{},
+			bidStorage: &BookStorageMock{},
+			orders: []*enginetypes.EngineOrder{
+				enginetypes.NewEngineOrder(
+					&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok, Status: entity.New},
+					nil,
+				),
+			},
 		},
-		{name: "with day order", testNumber: 2, askStorage: &BookStorageMock{}, bidStorage: &BookStorageMock{}, orders: []*enginetypes.EngineOrder{
-			enginetypes.NewEngineOrder(
-				&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok, Status: entity.New},
-				make(chan<- *entity.Event),
-			),
-			enginetypes.NewEngineOrder(
-				&entity.Order{Id: "2", Type: entity.Bid, TimeInForce: entity.Day, Status: entity.New},
-				make(chan<- *entity.Event),
-			)},
+		{
+			name:       "with day order",
+			testNumber: 2,
+			askStorage: &BookStorageMock{},
+			bidStorage: &BookStorageMock{},
+			orders: []*enginetypes.EngineOrder{
+				enginetypes.NewEngineOrder(
+					&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok, Status: entity.New},
+					nil,
+				),
+				enginetypes.NewEngineOrder(
+					&entity.Order{Id: "2", Type: entity.Bid, TimeInForce: entity.Day, Status: entity.New},
+					nil,
+				),
+			},
 		},
 	}
 
@@ -195,7 +205,6 @@ func TestOrderBook_CancelDayOrders(t *testing.T) {
 			t.Parallel()
 
 			parent := &ParentMock{}
-
 			parent.On("Delete").Return()
 
 			tt.askStorage.On("Add").Return()
@@ -210,16 +219,19 @@ func TestOrderBook_CancelDayOrders(t *testing.T) {
 				book.Add(order)
 			}
 
-			book.CancelDayOrders()
+			batch := eventbatch.New()
+			defer batch.Release()
+			book.CancelDayOrders(batch)
 
 			switch tt.testNumber {
 			case 1:
 				require.Equal(t, enginetypes.New, tt.orders[0].GetStatus())
+				require.Equal(t, 0, batch.Len())
 
 			case 2:
 				require.Equal(t, enginetypes.New, tt.orders[0].GetStatus())
 				require.Equal(t, enginetypes.Expired, tt.orders[1].GetStatus())
-
+				require.True(t, batch.Len() > 0)
 			}
 		})
 	}
@@ -236,21 +248,35 @@ func TestOrderBook_Cancel(t *testing.T) {
 		orderId    string
 		testNumber int
 	}{
-		{name: "cancel non-existent order", testNumber: 1, orderId: "-1", askStorage: &BookStorageMock{}, bidStorage: &BookStorageMock{}, orders: []*enginetypes.EngineOrder{
-			enginetypes.NewEngineOrder(
-				&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok, Status: entity.New},
-				make(chan<- *entity.Event),
-			)},
+		{
+			name:       "cancel non-existent order",
+			testNumber: 1,
+			orderId:    "-1",
+			askStorage: &BookStorageMock{},
+			bidStorage: &BookStorageMock{},
+			orders: []*enginetypes.EngineOrder{
+				enginetypes.NewEngineOrder(
+					&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok, Status: entity.New},
+					nil,
+				),
+			},
 		},
-		{name: "cancel existent order", testNumber: 2, orderId: "1", askStorage: &BookStorageMock{}, bidStorage: &BookStorageMock{}, orders: []*enginetypes.EngineOrder{
-			enginetypes.NewEngineOrder(
-				&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok, Status: entity.New},
-				make(chan<- *entity.Event),
-			),
-			enginetypes.NewEngineOrder(
-				&entity.Order{Id: "2", Type: entity.Bid, TimeInForce: entity.Day, Status: entity.New},
-				make(chan<- *entity.Event),
-			)},
+		{
+			name:       "cancel existent order",
+			testNumber: 2,
+			orderId:    "1",
+			askStorage: &BookStorageMock{},
+			bidStorage: &BookStorageMock{},
+			orders: []*enginetypes.EngineOrder{
+				enginetypes.NewEngineOrder(
+					&entity.Order{Id: "1", Type: entity.Ask, TimeInForce: entity.Fok, Status: entity.New},
+					nil,
+				),
+				enginetypes.NewEngineOrder(
+					&entity.Order{Id: "2", Type: entity.Bid, TimeInForce: entity.Day, Status: entity.New},
+					nil,
+				),
+			},
 		},
 	}
 
@@ -260,7 +286,6 @@ func TestOrderBook_Cancel(t *testing.T) {
 			t.Parallel()
 
 			parent := &ParentMock{}
-
 			parent.On("Delete").Return()
 
 			tt.askStorage.On("Add").Return()
@@ -275,16 +300,19 @@ func TestOrderBook_Cancel(t *testing.T) {
 				book.Add(order)
 			}
 
-			book.Cancel(tt.orderId)
+			batch := eventbatch.New()
+			defer batch.Release()
+			book.Cancel(tt.orderId, batch)
 
 			switch tt.testNumber {
 			case 1:
 				require.Equal(t, enginetypes.New, tt.orders[0].GetStatus())
+				require.Equal(t, 0, batch.Len())
 
 			case 2:
 				require.Equal(t, enginetypes.Canceled, tt.orders[0].GetStatus())
 				require.Equal(t, enginetypes.New, tt.orders[1].GetStatus())
-
+				require.True(t, batch.Len() > 0)
 			}
 		})
 	}
@@ -295,12 +323,12 @@ func TestOrderBook_GetStopOrders(t *testing.T) {
 
 	stopOrder1 := enginetypes.NewEngineOrder(
 		&entity.Order{Id: "stop1", Type: entity.Bid, TimeInForce: entity.Day, Status: entity.New},
-		make(chan<- *entity.Event),
+		nil,
 	)
 
 	stopOrder2 := enginetypes.NewEngineOrder(
 		&entity.Order{Id: "stop2", Type: entity.Ask, TimeInForce: entity.Day, Status: entity.New},
-		make(chan<- *entity.Event),
+		nil,
 	)
 
 	parent := &ParentMock{}
@@ -361,14 +389,12 @@ func TestOrderBook_BestBidPrice(t *testing.T) {
 		askStorage *BookStorageMock
 		bidStorage *BookStorageMock
 		want       int64
-		testNumber int
 	}{
 		{
 			name:       "empty bid book",
 			askStorage: &BookStorageMock{},
 			bidStorage: &BookStorageMock{},
 			want:       0,
-			testNumber: 1,
 		},
 	}
 
@@ -382,7 +408,6 @@ func TestOrderBook_BestBidPrice(t *testing.T) {
 			)
 
 			got := book.BestBidPrice()
-
 			require.Equal(t, tt.want, got)
 		})
 	}
@@ -396,14 +421,12 @@ func TestOrderBook_BestAskPrice(t *testing.T) {
 		askStorage *BookStorageMock
 		bidStorage *BookStorageMock
 		want       int64
-		testNumber int
 	}{
 		{
 			name:       "empty ask book",
 			askStorage: &BookStorageMock{},
 			bidStorage: &BookStorageMock{},
 			want:       0,
-			testNumber: 1,
 		},
 	}
 
@@ -417,8 +440,223 @@ func TestOrderBook_BestAskPrice(t *testing.T) {
 			)
 
 			got := book.BestAskPrice()
-
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestOrderBook_Match_IOC_NoMatch(t *testing.T) {
+	t.Parallel()
+
+	book := orderbook.NewOrderBook(
+		orderbook.NewBook(
+			skiplist.New(skiplist.AscendingList),
+			skiplist.New(skiplist.DescendingList),
+		),
+	)
+
+	askOrder := enginetypes.NewEngineOrder(
+		&entity.Order{Id: "ask-1", Type: entity.Ask, Price: 101, Quantity: 100, TimeInForce: entity.Gtc, Status: entity.New},
+		nil,
+	)
+	book.Add(askOrder)
+
+	batch := eventbatch.New()
+	defer batch.Release()
+
+	iocOrder := enginetypes.NewEngineOrder(
+		&entity.Order{Id: "ioc-1", Type: entity.Bid, Price: 99, Quantity: 50, TimeInForce: entity.Ioc, Status: entity.New},
+		nil,
+	)
+
+	book.Match(iocOrder, batch)
+
+	require.Equal(t, enginetypes.Canceled, iocOrder.GetStatus())
+	require.Equal(t, int64(0), iocOrder.GetFilledQuantity())
+	require.Equal(t, 1, batch.Len())
+}
+
+func TestOrderBook_Match_IOC_PartialMatch(t *testing.T) {
+	t.Parallel()
+
+	book := orderbook.NewOrderBook(
+		orderbook.NewBook(
+			skiplist.New(skiplist.AscendingList),
+			skiplist.New(skiplist.DescendingList),
+		),
+	)
+
+	askOrder := enginetypes.NewEngineOrder(
+		&entity.Order{Id: "ask-1", Type: entity.Ask, Price: 101, Quantity: 100, TimeInForce: entity.Gtc, Status: entity.New},
+		nil,
+	)
+	book.Add(askOrder)
+
+	batch := eventbatch.New()
+	defer batch.Release()
+
+	iocOrder := enginetypes.NewEngineOrder(
+		&entity.Order{Id: "ioc-1", Type: entity.Bid, Price: 101, Quantity: 250, TimeInForce: entity.Ioc, Status: entity.New},
+		nil,
+	)
+
+	book.Match(iocOrder, batch)
+
+	require.Equal(t, enginetypes.Canceled, iocOrder.GetStatus())
+	require.Equal(t, int64(100), iocOrder.GetFilledQuantity())
+	require.True(t, batch.Len() > 0)
+}
+
+func TestOrderBook_Match_IOC_FullMatch(t *testing.T) {
+	t.Parallel()
+
+	book := orderbook.NewOrderBook(
+		orderbook.NewBook(
+			skiplist.New(skiplist.AscendingList),
+			skiplist.New(skiplist.DescendingList),
+		),
+	)
+
+	askOrder := enginetypes.NewEngineOrder(
+		&entity.Order{Id: "ask-1", Type: entity.Ask, Price: 101, Quantity: 100, TimeInForce: entity.Gtc, Status: entity.New},
+		nil,
+	)
+	book.Add(askOrder)
+
+	batch := eventbatch.New()
+	defer batch.Release()
+
+	iocOrder := enginetypes.NewEngineOrder(
+		&entity.Order{Id: "ioc-1", Type: entity.Bid, Price: 101, Quantity: 50, TimeInForce: entity.Ioc, Status: entity.New},
+		nil,
+	)
+
+	book.Match(iocOrder, batch)
+
+	require.Equal(t, enginetypes.Filled, iocOrder.GetStatus())
+	require.Equal(t, int64(50), iocOrder.GetFilledQuantity())
+	require.True(t, batch.Len() > 0)
+}
+
+func TestOrderBook_Match_FOK_Rejected(t *testing.T) {
+	t.Parallel()
+
+	book := orderbook.NewOrderBook(
+		orderbook.NewBook(
+			skiplist.New(skiplist.AscendingList),
+			skiplist.New(skiplist.DescendingList),
+		),
+	)
+
+	askOrder := enginetypes.NewEngineOrder(
+		&entity.Order{Id: "ask-1", Type: entity.Ask, Price: 101, Quantity: 100, TimeInForce: entity.Gtc, Status: entity.New},
+		nil,
+	)
+	book.Add(askOrder)
+
+	batch := eventbatch.New()
+	defer batch.Release()
+
+	fokOrder := enginetypes.NewEngineOrder(
+		&entity.Order{Id: "fok-1", Type: entity.Bid, Price: 101, Quantity: 200, TimeInForce: entity.Fok, Status: entity.New},
+		nil,
+	)
+
+	book.Match(fokOrder, batch)
+
+	require.Equal(t, enginetypes.Rejected, fokOrder.GetStatus())
+	require.Equal(t, int64(0), fokOrder.GetFilledQuantity())
+	require.Equal(t, 1, batch.Len())
+}
+
+func TestOrderBook_Match_FOK_FullMatch(t *testing.T) {
+	t.Parallel()
+
+	book := orderbook.NewOrderBook(
+		orderbook.NewBook(
+			skiplist.New(skiplist.AscendingList),
+			skiplist.New(skiplist.DescendingList),
+		),
+	)
+
+	askOrder := enginetypes.NewEngineOrder(
+		&entity.Order{Id: "ask-1", Type: entity.Ask, Price: 101, Quantity: 100, TimeInForce: entity.Gtc, Status: entity.New},
+		nil,
+	)
+	book.Add(askOrder)
+
+	batch := eventbatch.New()
+	defer batch.Release()
+
+	fokOrder := enginetypes.NewEngineOrder(
+		&entity.Order{Id: "fok-1", Type: entity.Bid, Price: 101, Quantity: 50, TimeInForce: entity.Fok, Status: entity.New},
+		nil,
+	)
+
+	book.Match(fokOrder, batch)
+
+	require.Equal(t, enginetypes.Filled, fokOrder.GetStatus())
+	require.Equal(t, int64(50), fokOrder.GetFilledQuantity())
+}
+
+func TestOrderBook_Match_GTC_Rests(t *testing.T) {
+	t.Parallel()
+
+	book := orderbook.NewOrderBook(
+		orderbook.NewBook(
+			skiplist.New(skiplist.AscendingList),
+			skiplist.New(skiplist.DescendingList),
+		),
+	)
+
+	askOrder := enginetypes.NewEngineOrder(
+		&entity.Order{Id: "ask-1", Type: entity.Ask, Price: 101, Quantity: 100, TimeInForce: entity.Gtc, Status: entity.New},
+		nil,
+	)
+	book.Add(askOrder)
+
+	batch := eventbatch.New()
+	defer batch.Release()
+
+	gtcOrder := enginetypes.NewEngineOrder(
+		&entity.Order{Id: "gtc-1", Type: entity.Bid, Price: 99, Quantity: 50, TimeInForce: entity.Gtc, Status: entity.New},
+		nil,
+	)
+
+	book.Match(gtcOrder, batch)
+
+	require.Equal(t, enginetypes.New, gtcOrder.GetStatus())
+	require.Equal(t, int64(0), gtcOrder.GetFilledQuantity())
+	require.Equal(t, 0, batch.Len())
+}
+
+func TestOrderBook_Match_GTC_PartialMatchAndRest(t *testing.T) {
+	t.Parallel()
+
+	book := orderbook.NewOrderBook(
+		orderbook.NewBook(
+			skiplist.New(skiplist.AscendingList),
+			skiplist.New(skiplist.DescendingList),
+		),
+	)
+
+	askOrder := enginetypes.NewEngineOrder(
+		&entity.Order{Id: "ask-1", Type: entity.Ask, Price: 101, Quantity: 100, TimeInForce: entity.Gtc, Status: entity.New},
+		nil,
+	)
+	book.Add(askOrder)
+
+	batch := eventbatch.New()
+	defer batch.Release()
+
+	gtcOrder := enginetypes.NewEngineOrder(
+		&entity.Order{Id: "gtc-1", Type: entity.Bid, Price: 101, Quantity: 250, TimeInForce: entity.Gtc, Status: entity.New},
+		nil,
+	)
+
+	book.Match(gtcOrder, batch)
+
+	require.Equal(t, enginetypes.New, gtcOrder.GetStatus())
+	require.Equal(t, int64(100), gtcOrder.GetFilledQuantity())
+	require.True(t, batch.Len() > 0)
 }

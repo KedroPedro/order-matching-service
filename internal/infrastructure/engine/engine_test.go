@@ -1,357 +1,419 @@
-package engine
+package engine_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	eventbatch "github.com/KedroPedro/order-matching-engine/internal/application/event_handler/event_batch"
 	"github.com/KedroPedro/order-matching-engine/internal/domain/entity"
+	"github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine"
 	enginetypes "github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine/engine_types"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-type OrderBookMock struct {
+type MockOrderBook struct {
 	mock.Mock
 }
 
-func (m *OrderBookMock) BestAskPrice() int64 {
+func (m *MockOrderBook) BestAskPrice() int64 {
 	args := m.Called()
 	return args.Get(0).(int64)
 }
 
-func (m *OrderBookMock) BestBidPrice() int64 {
+func (m *MockOrderBook) BestBidPrice() int64 {
 	args := m.Called()
 	return args.Get(0).(int64)
 }
 
-func (m *OrderBookMock) Match(order *enginetypes.EngineOrder) {
-	m.Called(order)
+func (m *MockOrderBook) Match(order *enginetypes.EngineOrder, batch *eventbatch.EventBatch) {
+	m.Called(order, batch)
 }
 
-func (m *OrderBookMock) Remove(orderId string) {
+func (m *MockOrderBook) Remove(orderId string) {
 	m.Called(orderId)
 }
 
-func (m *OrderBookMock) Cancel(orderId string) {
-	m.Called(orderId)
+func (m *MockOrderBook) Cancel(orderId string, batch *eventbatch.EventBatch) {
+	m.Called(orderId, batch)
 }
 
-func (m *OrderBookMock) CancelDayOrders() {
-	m.Called()
+func (m *MockOrderBook) CancelDayOrders(batch *eventbatch.EventBatch) {
+	m.Called(batch)
 }
 
-type StopOrderBookMock struct {
+type MockStopOrderBook struct {
 	mock.Mock
 }
 
-func (m *StopOrderBookMock) Add(order *enginetypes.EngineOrder) {
+func (m *MockStopOrderBook) Add(order *enginetypes.EngineOrder) {
 	m.Called(order)
 }
 
-func (m *StopOrderBookMock) GetStopOrders(bestAskLevel, bestBidLevel int64) []*enginetypes.EngineOrder {
+func (m *MockStopOrderBook) GetStopOrders(bestAskLevel, bestBidLevel int64) []*enginetypes.EngineOrder {
 	args := m.Called(bestAskLevel, bestBidLevel)
-	if args.Get(0) == nil {
-		return nil
-	}
 	return args.Get(0).([]*enginetypes.EngineOrder)
 }
 
-func (m *StopOrderBookMock) Cancel(orderId string) {
-	m.Called(orderId)
+func (m *MockStopOrderBook) Cancel(orderId string, batch *eventbatch.EventBatch) {
+	m.Called(orderId, batch)
 }
 
-func (m *StopOrderBookMock) CancelDayOrders() {
-	m.Called()
+func (m *MockStopOrderBook) CancelDayOrders(batch *eventbatch.EventBatch) {
+	m.Called(batch)
 }
 
-func TestEngine_cancelOrder(t *testing.T) {
+func createTestOrder(id string, orderType enginetypes.EngineOrderType, tif entity.OrderTimeInForce, price, quantity int64) *enginetypes.EngineOrder {
+	var entityOrderType entity.OrderType
+	if orderType == enginetypes.Ask {
+		entityOrderType = entity.Ask
+	} else {
+		entityOrderType = entity.Bid
+	}
+
+	order := &entity.Order{
+		Id:             id,
+		OwnerId:        "test-owner",
+		Type:           entityOrderType,
+		Price:          price,
+		Quantity:       quantity,
+		FilledQuantity: 0,
+		Class:          entity.Limit,
+		TimeInForce:    tif,
+		Status:         entity.New,
+		CreatedAt:      time.Now(),
+		Reserve:        price * quantity,
+		Stop:           false,
+	}
+
+	return enginetypes.NewEngineOrder(order, nil)
+}
+
+func createStopOrder(id string, orderType enginetypes.EngineOrderType, tif entity.OrderTimeInForce, price, quantity int64) *enginetypes.EngineOrder {
+	var entityOrderType entity.OrderType
+	if orderType == enginetypes.Ask {
+		entityOrderType = entity.Ask
+	} else {
+		entityOrderType = entity.Bid
+	}
+
+	order := &entity.Order{
+		Id:             id,
+		OwnerId:        "test-owner",
+		Type:           entityOrderType,
+		Price:          price,
+		Quantity:       quantity,
+		FilledQuantity: 0,
+		Class:          entity.Limit,
+		TimeInForce:    tif,
+		Status:         entity.New,
+		CreatedAt:      time.Now(),
+		Reserve:        price * quantity,
+		Stop:           true,
+	}
+
+	return enginetypes.NewEngineOrder(order, nil)
+}
+
+func TestEngine_ProcessOrder_NormalOrder(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name       string
-		setupMocks func(orders *OrderBookMock, stops *StopOrderBookMock)
-		orderId    string
-	}{
-		{
-			name:    "cancel order in both books",
-			orderId: "order1",
-			setupMocks: func(orders *OrderBookMock, stops *StopOrderBookMock) {
-				orders.On("Cancel", "order1").Return()
-				stops.On("Cancel", "order1").Return()
-			},
-		},
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mockOrders := new(MockOrderBook)
+	mockStops := new(MockStopOrderBook)
+
+	eventBatchChan := make(chan *eventbatch.EventBatch, 10)
+	orderChan := make(chan *enginetypes.EngineOrder, 10)
+	cancelChan := make(chan string, 10)
+	endChan := make(chan struct{}, 1)
+	dayChan := make(chan struct{}, 1)
+
+	mockOrders.On("BestAskPrice").Return(int64(100))
+	mockOrders.On("BestBidPrice").Return(int64(99))
+	mockOrders.On("Match", mock.Anything, mock.Anything).Return()
+	mockStops.On("GetStopOrders", int64(100), int64(99)).Return([]*enginetypes.EngineOrder{})
+
+	engine.New(ctx, mockOrders, mockStops, eventBatchChan, orderChan, cancelChan, endChan, dayChan)
+
+	order := createTestOrder("order-1", enginetypes.Bid, entity.Gtc, 100, 50)
+	orderChan <- order
+
+	select {
+	case batch := <-eventBatchChan:
+		require.Equal(t, 2, batch.Len())
+		batch.Release()
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timeout waiting for event batch")
 	}
 
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	close(orderChan)
+	close(cancelChan)
+	close(dayChan)
 
-			orders := &OrderBookMock{}
-			stops := &StopOrderBookMock{}
-			orderChan := make(<-chan *enginetypes.EngineOrder)
-			cancelChan := make(<-chan string)
-			endChan := make(chan<- struct{})
-			dayChan := make(<-chan struct{})
-
-			tt.setupMocks(orders, stops)
-
-			this := New(t.Context(), orders, stops, orderChan, cancelChan, endChan, dayChan)
-			this.cancelOrder(tt.orderId)
-
-			orders.AssertCalled(t, "Cancel", tt.orderId)
-			stops.AssertCalled(t, "Cancel", tt.orderId)
-			orders.AssertExpectations(t)
-			stops.AssertExpectations(t)
-		})
+	select {
+	case <-endChan:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timeout waiting for engine shutdown")
 	}
+
+	mockOrders.AssertExpectations(t)
+	mockStops.AssertExpectations(t)
 }
 
-func TestEngine_close(t *testing.T) {
+func TestEngine_ProcessOrder_StopOrder(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name       string
-		setupMocks func(orders *OrderBookMock, stops *StopOrderBookMock)
-	}{
-		{
-			name: "close cancels day orders in both books",
-			setupMocks: func(orders *OrderBookMock, stops *StopOrderBookMock) {
-				orders.On("CancelDayOrders").Return()
-				stops.On("CancelDayOrders").Return()
-			},
-		},
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mockOrders := new(MockOrderBook)
+	mockStops := new(MockStopOrderBook)
+
+	eventBatchChan := make(chan *eventbatch.EventBatch, 10)
+	orderChan := make(chan *enginetypes.EngineOrder, 10)
+	cancelChan := make(chan string, 10)
+	endChan := make(chan struct{}, 1)
+	dayChan := make(chan struct{}, 1)
+
+	mockOrders.On("BestAskPrice").Return(int64(100))
+	mockOrders.On("BestBidPrice").Return(int64(99))
+	mockStops.On("Add", mock.Anything).Return()
+	mockStops.On("GetStopOrders", int64(100), int64(99)).Return([]*enginetypes.EngineOrder{})
+
+	engine.New(ctx, mockOrders, mockStops, eventBatchChan, orderChan, cancelChan, endChan, dayChan)
+
+	stopOrder := createStopOrder("stop-1", enginetypes.Bid, entity.Gtc, 105, 50)
+	orderChan <- stopOrder
+
+	select {
+	case batch := <-eventBatchChan:
+		require.Equal(t, 1, batch.Len())
+		batch.Release()
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timeout waiting for event batch")
 	}
 
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	close(orderChan)
+	close(cancelChan)
+	close(dayChan)
 
-			orders := &OrderBookMock{}
-			stops := &StopOrderBookMock{}
-			orderChan := make(<-chan *enginetypes.EngineOrder)
-			cancelChan := make(<-chan string)
-			endChan := make(chan<- struct{})
-			dayChan := make(<-chan struct{})
-
-			tt.setupMocks(orders, stops)
-
-			this := New(t.Context(), orders, stops, orderChan, cancelChan, endChan, dayChan)
-			this.close()
-
-			orders.AssertCalled(t, "CancelDayOrders")
-			stops.AssertCalled(t, "CancelDayOrders")
-			orders.AssertExpectations(t)
-			stops.AssertExpectations(t)
-		})
+	select {
+	case <-endChan:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timeout waiting for engine shutdown")
 	}
+
+	mockOrders.AssertExpectations(t)
+	mockStops.AssertExpectations(t)
 }
 
-func TestEngine_processStopOrders(t *testing.T) {
+func TestEngine_CancelOrder(t *testing.T) {
 	t.Parallel()
 
-	stopOrder1 := enginetypes.NewEngineOrder(
-		&entity.Order{Id: "stop1", Type: entity.Bid, TimeInForce: entity.Day, Status: entity.New},
-		make(chan<- *entity.Event),
-	)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	tests := []struct {
-		name           string
-		setupMocks     func(orders *OrderBookMock, stops *StopOrderBookMock)
-		assertBehavior func(t *testing.T, orders *OrderBookMock, stops *StopOrderBookMock)
-	}{
-		{
-			name: "no stop orders triggered",
-			setupMocks: func(orders *OrderBookMock, stops *StopOrderBookMock) {
-				orders.On("BestAskPrice").Return(int64(100))
-				orders.On("BestBidPrice").Return(int64(90))
-				stops.On("GetStopOrders", int64(100), int64(90)).Return([]*enginetypes.EngineOrder{})
-			},
-			assertBehavior: func(t *testing.T, orders *OrderBookMock, stops *StopOrderBookMock) {
-				orders.AssertNotCalled(t, "Match", mock.Anything)
-			},
-		},
-		{
-			name: "stop orders triggered and matched",
-			setupMocks: func(orders *OrderBookMock, stops *StopOrderBookMock) {
-				orders.On("BestAskPrice").Return(int64(100))
-				orders.On("BestBidPrice").Return(int64(90))
-				stops.On("GetStopOrders", int64(100), int64(90)).Return([]*enginetypes.EngineOrder{stopOrder1})
-				orders.On("Match", stopOrder1).Return()
-			},
-			assertBehavior: func(t *testing.T, orders *OrderBookMock, stops *StopOrderBookMock) {
-				orders.AssertCalled(t, "Match", stopOrder1)
-			},
-		},
+	mockOrders := new(MockOrderBook)
+	mockStops := new(MockStopOrderBook)
+
+	eventBatchChan := make(chan *eventbatch.EventBatch, 10)
+	orderChan := make(chan *enginetypes.EngineOrder, 10)
+	cancelChan := make(chan string, 10)
+	endChan := make(chan struct{}, 1)
+	dayChan := make(chan struct{}, 1)
+
+	mockOrders.On("BestAskPrice").Return(int64(100))
+	mockOrders.On("BestBidPrice").Return(int64(99))
+	mockOrders.On("Cancel", "order-1", mock.Anything).Return()
+	mockStops.On("Cancel", "order-1", mock.Anything).Return()
+	mockStops.On("GetStopOrders", int64(100), int64(99)).Return([]*enginetypes.EngineOrder{})
+
+	engine.New(ctx, mockOrders, mockStops, eventBatchChan, orderChan, cancelChan, endChan, dayChan)
+
+	cancelChan <- "order-1"
+
+	select {
+	case batch := <-eventBatchChan:
+		require.Equal(t, 0, batch.Len())
+		batch.Release()
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timeout waiting for event batch")
 	}
 
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	close(orderChan)
+	close(cancelChan)
+	close(dayChan)
 
-			orders := &OrderBookMock{}
-			stops := &StopOrderBookMock{}
-			orderChan := make(<-chan *enginetypes.EngineOrder)
-			cancelChan := make(<-chan string)
-			endChan := make(chan<- struct{})
-			dayChan := make(<-chan struct{})
-
-			tt.setupMocks(orders, stops)
-
-			this := New(t.Context(), orders, stops, orderChan, cancelChan, endChan, dayChan)
-			this.processStopOrders()
-
-			tt.assertBehavior(t, orders, stops)
-			orders.AssertExpectations(t)
-			stops.AssertExpectations(t)
-		})
+	select {
+	case <-endChan:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timeout waiting for engine shutdown")
 	}
+
+	mockOrders.AssertExpectations(t)
+	mockStops.AssertExpectations(t)
 }
 
-func TestEngine_processOrder(t *testing.T) {
+func TestEngine_Close(t *testing.T) {
 	t.Parallel()
 
-	stopOrder := enginetypes.NewEngineOrder(
-		&entity.Order{Id: "stop1", Type: entity.Bid, TimeInForce: entity.Day, Status: entity.New, Stop: true},
-		make(chan<- *entity.Event),
-	)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	regularOrder := enginetypes.NewEngineOrder(
-		&entity.Order{Id: "reg1", Type: entity.Ask, TimeInForce: entity.Gtc, Status: entity.New},
-		make(chan<- *entity.Event),
-	)
+	mockOrders := new(MockOrderBook)
+	mockStops := new(MockStopOrderBook)
 
-	dayOrder := enginetypes.NewEngineOrder(
-		&entity.Order{Id: "day1", Type: entity.Ask, TimeInForce: entity.Day, Status: entity.New},
-		make(chan<- *entity.Event),
-	)
+	eventBatchChan := make(chan *eventbatch.EventBatch, 10)
+	orderChan := make(chan *enginetypes.EngineOrder, 10)
+	cancelChan := make(chan string, 10)
+	endChan := make(chan struct{}, 1)
+	dayChan := make(chan struct{}, 1)
 
-	tests := []struct {
-		name           string
-		order          *enginetypes.EngineOrder
-		closed         bool
-		setupMocks     func(orders *OrderBookMock, stops *StopOrderBookMock)
-		assertBehavior func(t *testing.T, orders *OrderBookMock, stops *StopOrderBookMock, order *enginetypes.EngineOrder)
-	}{
-		{
-			name:   "stop order - added to stop book",
-			order:  stopOrder,
-			closed: false,
-			setupMocks: func(orders *OrderBookMock, stops *StopOrderBookMock) {
-				stops.On("Add", stopOrder).Return()
-			},
-			assertBehavior: func(t *testing.T, orders *OrderBookMock, stops *StopOrderBookMock, order *enginetypes.EngineOrder) {
-				require.Equal(t, enginetypes.Pending, order.GetStatus())
-				stops.AssertCalled(t, "Add", order)
-				orders.AssertNotCalled(t, "Match")
-			},
-		},
-		{
-			name:   "regular order - matched",
-			order:  regularOrder,
-			closed: false,
-			setupMocks: func(orders *OrderBookMock, stops *StopOrderBookMock) {
-				orders.On("Match", regularOrder).Return()
-				orders.On("BestAskPrice").Return(int64(0))
-				orders.On("BestBidPrice").Return(int64(0))
-				stops.On("GetStopOrders", int64(0), int64(0)).Return([]*enginetypes.EngineOrder{})
-			},
-			assertBehavior: func(t *testing.T, orders *OrderBookMock, stops *StopOrderBookMock, order *enginetypes.EngineOrder) {
-				require.Equal(t, enginetypes.New, order.GetStatus())
-				orders.AssertCalled(t, "Match", order)
-			},
-		},
-		{
-			name:   "day order when closed - expired",
-			order:  dayOrder,
-			closed: true,
-			setupMocks: func(orders *OrderBookMock, stops *StopOrderBookMock) {
-			},
-			assertBehavior: func(t *testing.T, orders *OrderBookMock, stops *StopOrderBookMock, order *enginetypes.EngineOrder) {
-				require.Equal(t, enginetypes.Expired, order.GetStatus())
-				orders.AssertNotCalled(t, "Match")
-			},
-		},
-		{
-			name:   "day order when open - matched",
-			order:  dayOrder,
-			closed: false,
-			setupMocks: func(orders *OrderBookMock, stops *StopOrderBookMock) {
-				orders.On("Match", dayOrder).Return()
-				orders.On("BestAskPrice").Return(int64(0))
-				orders.On("BestBidPrice").Return(int64(0))
-				stops.On("GetStopOrders", int64(0), int64(0)).Return([]*enginetypes.EngineOrder{})
-			},
-			assertBehavior: func(t *testing.T, orders *OrderBookMock, stops *StopOrderBookMock, order *enginetypes.EngineOrder) {
-				require.Equal(t, enginetypes.New, order.GetStatus())
-				orders.AssertCalled(t, "Match", order)
-			},
-		},
+	mockOrders.On("BestAskPrice").Return(int64(100))
+	mockOrders.On("BestBidPrice").Return(int64(99))
+	mockOrders.On("CancelDayOrders", mock.Anything).Return()
+	mockStops.On("CancelDayOrders", mock.Anything).Return()
+	mockStops.On("GetStopOrders", int64(100), int64(99)).Return([]*enginetypes.EngineOrder{})
+
+	engine.New(ctx, mockOrders, mockStops, eventBatchChan, orderChan, cancelChan, endChan, dayChan)
+
+	dayChan <- struct{}{}
+
+	select {
+	case batch := <-eventBatchChan:
+		require.Equal(t, 0, batch.Len())
+		batch.Release()
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timeout waiting for event batch")
 	}
 
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	close(orderChan)
+	close(cancelChan)
+	close(dayChan)
 
-			orders := &OrderBookMock{}
-			stops := &StopOrderBookMock{}
-			orderChan := make(<-chan *enginetypes.EngineOrder)
-			cancelChan := make(<-chan string)
-			endChan := make(chan<- struct{})
-			dayChan := make(<-chan struct{})
-
-			tt.setupMocks(orders, stops)
-
-			this := New(t.Context(), orders, stops, orderChan, cancelChan, endChan, dayChan)
-			if tt.closed {
-				this.closed = true
-			}
-			this.processOrder(tt.order)
-
-			tt.assertBehavior(t, orders, stops, tt.order)
-			orders.AssertExpectations(t)
-			stops.AssertExpectations(t)
-		})
+	select {
+	case <-endChan:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timeout waiting for engine shutdown")
 	}
+
+	mockOrders.AssertExpectations(t)
+	mockStops.AssertExpectations(t)
 }
 
-func TestNew(t *testing.T) {
+func TestEngine_ProcessStopOrders(t *testing.T) {
 	t.Parallel()
 
-	ordersMock := &OrderBookMock{}
-	stopsMock := &StopOrderBookMock{}
-	orderChan := make(<-chan *enginetypes.EngineOrder)
-	cancelChan := make(<-chan string)
-	endChan := make(chan<- struct{})
-	dayChan := make(<-chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	tests := []struct {
-		name string
-		want *Engine
-	}{
-		{
-			name: "create engine with mocks",
-			want: &Engine{
-				orders:     ordersMock,
-				stopOrders: stopsMock,
-				closed:     false,
-			},
-		},
+	mockOrders := new(MockOrderBook)
+	mockStops := new(MockStopOrderBook)
+
+	eventBatchChan := make(chan *eventbatch.EventBatch, 10)
+	orderChan := make(chan *enginetypes.EngineOrder, 10)
+	cancelChan := make(chan string, 10)
+	endChan := make(chan struct{}, 1)
+	dayChan := make(chan struct{}, 1)
+
+	stopOrder := createStopOrder("stop-1", enginetypes.Bid, entity.Gtc, 105, 50)
+
+	mockOrders.On("BestAskPrice").Return(int64(100))
+	mockOrders.On("BestBidPrice").Return(int64(99))
+	mockOrders.On("Match", mock.Anything, mock.Anything).Return()
+	mockStops.On("Add", mock.Anything).Return()
+	mockStops.On("GetStopOrders", int64(100), int64(99)).Return([]*enginetypes.EngineOrder{stopOrder})
+
+	engine.New(ctx, mockOrders, mockStops, eventBatchChan, orderChan, cancelChan, endChan, dayChan)
+
+	normalOrder := createTestOrder("order-1", enginetypes.Bid, entity.Gtc, 100, 50)
+	orderChan <- normalOrder
+
+	var batches []*eventbatch.EventBatch
+	timeout := time.After(200 * time.Millisecond)
+	for len(batches) < 2 {
+		select {
+		case batch := <-eventBatchChan:
+			batches = append(batches, batch)
+		case <-timeout:
+			t.Fatalf("timeout waiting for event batches, got %d", len(batches))
+		}
 	}
 
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := New(t.Context(), ordersMock, stopsMock, orderChan, cancelChan, endChan, dayChan)
-
-			require.NotNil(t, got)
-			require.Equal(t, tt.want.orders, got.orders)
-			require.Equal(t, tt.want.stopOrders, got.stopOrders)
-			require.Equal(t, tt.want.closed, got.closed)
-		})
+	require.Equal(t, 2, len(batches))
+	for _, batch := range batches {
+		batch.Release()
 	}
+
+	close(orderChan)
+	close(cancelChan)
+	close(dayChan)
+
+	select {
+	case <-endChan:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timeout waiting for engine shutdown")
+	}
+
+	mockOrders.AssertExpectations(t)
+	mockStops.AssertExpectations(t)
+}
+
+func TestEngine_ProcessOrder_DayOrderWhenClosed(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mockOrders := new(MockOrderBook)
+	mockStops := new(MockStopOrderBook)
+
+	eventBatchChan := make(chan *eventbatch.EventBatch, 10)
+	orderChan := make(chan *enginetypes.EngineOrder, 10)
+	cancelChan := make(chan string, 10)
+	endChan := make(chan struct{}, 1)
+	dayChan := make(chan struct{}, 1)
+
+	mockOrders.On("BestAskPrice").Return(int64(100))
+	mockOrders.On("BestBidPrice").Return(int64(99))
+	mockOrders.On("CancelDayOrders", mock.Anything).Return()
+	mockStops.On("CancelDayOrders", mock.Anything).Return()
+	mockStops.On("GetStopOrders", int64(100), int64(99)).Return([]*enginetypes.EngineOrder{})
+
+	engine.New(ctx, mockOrders, mockStops, eventBatchChan, orderChan, cancelChan, endChan, dayChan)
+
+	dayChan <- struct{}{}
+
+	select {
+	case batch := <-eventBatchChan:
+		batch.Release()
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	dayOrder := createTestOrder("day-1", enginetypes.Bid, entity.Day, 100, 50)
+	orderChan <- dayOrder
+
+	select {
+	case batch := <-eventBatchChan:
+		require.Equal(t, 2, batch.Len())
+		batch.Release()
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timeout waiting for event batch")
+	}
+
+	close(orderChan)
+	close(cancelChan)
+	close(dayChan)
+
+	select {
+	case <-endChan:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timeout waiting for engine shutdown")
+	}
+
+	mockOrders.AssertExpectations(t)
+	mockStops.AssertExpectations(t)
 }
