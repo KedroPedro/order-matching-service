@@ -28,9 +28,14 @@ type MarketStateRepository interface {
 	LoadScripts(ctx context.Context) error
 }
 
+type SessionRepository interface {
+	GetSession(ctx context.Context, login string) (*entity.User, error)
+	AddSession(ctx context.Context, user *entity.User) error
+}
+
 type Engine interface {
 	AddToQueue(order *entity.Order) error
-	Cancel(event *entity.Event) error
+	Cancel(orderId string)
 	Close()
 	Open()
 	IsClosed() bool

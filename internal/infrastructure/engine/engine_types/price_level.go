@@ -5,6 +5,12 @@ type OrderStorage interface {
 	Delete()
 	GetNodes() func() *EngineOrder
 	SetParent(Container)
+	GetFirstStorageNode() StorageNode
+}
+
+type StorageNode interface {
+	GetNextStorageNode() StorageNode
+	GetStorageNodeValue() *EngineOrder
 }
 
 type PriceLevel struct {
@@ -12,19 +18,25 @@ type PriceLevel struct {
 	totalQuantity int64
 	orders        OrderStorage
 	parent        Container
+	orderIterator OrderIterator
 }
 
-func NewPriceLevel(price, totalQuantity int64, storage OrderStorage, parent Container) *PriceLevel {
-	newPriceLevel := &PriceLevel{
+type OrderIterator struct {
+	curr StorageNode
+}
+
+func NewPriceLevel(price int64, storage OrderStorage, parent Container) *PriceLevel {
+	newPriceLevel := PriceLevel{
 		price:         price,
-		totalQuantity: totalQuantity,
+		totalQuantity: 0,
 		orders:        storage,
 		parent:        parent,
+		orderIterator: OrderIterator{},
 	}
 
-	storage.SetParent(newPriceLevel)
+	storage.SetParent(&newPriceLevel)
 
-	return newPriceLevel
+	return &newPriceLevel
 }
 
 func (this PriceLevel) GetLevel() int64 {
@@ -36,9 +48,7 @@ func (this PriceLevel) GetQuantity() int64 {
 }
 
 func (this *PriceLevel) Delete() {
-	if this.totalQuantity == 0 {
-		this.parent.Delete()
-	}
+	this.parent.Delete()
 }
 
 func (this *PriceLevel) GetFirst() *EngineOrder {
@@ -53,10 +63,17 @@ func (this *PriceLevel) IncreaseQuantity(quantity int64) {
 	this.totalQuantity += quantity
 }
 
-func (this *PriceLevel) GetOrders() func() *EngineOrder {
-	return this.orders.GetNodes()
-}
-
 func (this *PriceLevel) Add(order *EngineOrder) {
 	this.orders.Add(order)
+}
+
+func (this *PriceLevel) GetOrdersIterator() *OrderIterator {
+	this.orderIterator.curr = this.orders.GetFirstStorageNode()
+	return &this.orderIterator
+}
+
+func (this *OrderIterator) Next() *EngineOrder {
+	order := this.curr.GetStorageNodeValue()
+	this.curr = this.curr.GetNextStorageNode()
+	return order
 }

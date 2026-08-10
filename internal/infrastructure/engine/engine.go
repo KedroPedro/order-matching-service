@@ -2,27 +2,29 @@ package engine
 
 import (
 	"context"
-	"fmt"
-	"runtime"
-	"time"
+
+	eventbatch "github.com/KedroPedro/order-matching-engine/internal/application/event_handler/event_batch"
 
 	enginetypes "github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine/engine_types"
 )
 
+type Book interface {
+	Cancel(orderId string, eventBatch *eventbatch.EventBatch)
+	CancelDayOrders(eventBatch *eventbatch.EventBatch)
+}
+
 type StopOrderBook interface {
+	Book
 	Add(order *enginetypes.EngineOrder)
 	GetStopOrders(bestAskLevel, bestBidLevel int64) []*enginetypes.EngineOrder
-	Cancel(orderId string)
-	CancelDayOrders()
 }
 
 type OrderBook interface {
+	Book
 	BestAskPrice() int64
 	BestBidPrice() int64
-	Match(order *enginetypes.EngineOrder)
+	Match(order *enginetypes.EngineOrder, eventBatch *eventbatch.EventBatch)
 	Remove(orderId string)
-	Cancel(orderId string)
-	CancelDayOrders()
 }
 
 type OrderCollection interface {
@@ -33,24 +35,27 @@ type OrderCollection interface {
 }
 
 type Engine struct {
-	orders     OrderBook
-	stopOrders StopOrderBook
-	closed     bool
+	orders         OrderBook
+	stopOrders     StopOrderBook
+	eventBatchChan chan<- *eventbatch.EventBatch
+	closed         bool
 }
 
 func New(
 	ctx context.Context,
 	orders OrderBook,
 	stops StopOrderBook,
+	eventBatchChan chan<- *eventbatch.EventBatch,
 	orderChan <-chan *enginetypes.EngineOrder,
 	cancelChan <-chan string,
 	endChan chan<- struct{},
 	dayChan <-chan struct{},
 ) *Engine {
 	engine := &Engine{
-		orders:     orders,
-		stopOrders: stops,
-		closed:     false,
+		orders:         orders,
+		stopOrders:     stops,
+		closed:         false,
+		eventBatchChan: eventBatchChan,
 	}
 
 	go func() {
@@ -69,8 +74,6 @@ func New(
 					ordersClosed = true
 					continue
 				}
-
-				incomingOrder.SetNewStatus()
 
 				engine.processOrder(incomingOrder)
 
@@ -102,36 +105,73 @@ func New(
 }
 
 func (this *Engine) processOrder(order *enginetypes.EngineOrder) {
+	eventBatch := eventbatch.New()
+
 	if order.IsStopOrder() {
 		this.stopOrders.Add(order)
-		order.SetPendingStatus()
+		eventBatch.Add(order.SetPendingStatus())
 		return
 	}
 
 	if this.closed && order.GetTimeInForce() == enginetypes.DAY {
-		order.SetExpiredStatus()
+		eventBatch.Add(order.SetExpiredStatus())
 		return
 	}
 
-	this.orders.Match(order)
+	eventBatch.Add(order.SetNewStatus())
+
+	this.orders.Match(order, eventBatch)
+
+	if eventBatch.Len() > 0 {
+		this.eventBatchChan <- eventBatch
+	} else {
+		eventBatch.Release()
+	}
 
 	this.processStopOrders()
 }
 
 func (this *Engine) processStopOrders() {
+
 	orders := this.stopOrders.GetStopOrders(this.orders.BestAskPrice(), this.orders.BestBidPrice())
 
+	eventBatch := eventbatch.New()
+
 	for _, order := range orders {
-		this.orders.Match(order)
+		eventBatch.Add(order.SetNewStatus())
+		this.orders.Match(order, eventBatch)
+	}
+
+	if eventBatch.Len() > 0 {
+		this.eventBatchChan <- eventBatch
+	} else {
+		eventBatch.Release()
 	}
 }
 
 func (this *Engine) cancelOrder(orderId string) {
-	this.orders.Cancel(orderId)
-	this.stopOrders.Cancel(orderId)
+	eventBatch := eventbatch.New()
+	this.orders.Cancel(orderId, eventBatch)
+	this.stopOrders.Cancel(orderId, eventBatch)
+
+	if eventBatch.Len() > 0 {
+		this.eventBatchChan <- eventBatch
+	} else {
+		eventBatch.Release()
+	}
+
 }
 
 func (this *Engine) close() {
-	this.orders.CancelDayOrders()
-	this.stopOrders.CancelDayOrders()
+	eventBatch := eventbatch.New()
+
+	this.orders.CancelDayOrders(eventBatch)
+	this.stopOrders.CancelDayOrders(eventBatch)
+
+	if eventBatch.Len() > 0 {
+		this.eventBatchChan <- eventBatch
+	} else {
+		eventBatch.Release()
+	}
+
 }

@@ -3,6 +3,7 @@ package starter
 import (
 	"context"
 
+	eventbatch "github.com/KedroPedro/order-matching-engine/internal/application/event_handler/event_batch"
 	"github.com/KedroPedro/order-matching-engine/internal/domain/entity"
 	"github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine"
 	enginetypes "github.com/KedroPedro/order-matching-engine/internal/infrastructure/engine/engine_types"
@@ -12,18 +13,18 @@ import (
 )
 
 const (
-	engineOrderChanBuffer  = 10000
-	engineCancelChanBuffer = 10000
-	engineEventChanBuffer  = 10000
+	engineOrderChanBuffer      = 100000
+	engineCancelChanBuffer     = 100000
+	engineEventBatchChanBuffer = 10000
 )
 
 type Starter struct {
 	engine           *engine.Engine
 	orderChan        chan *entity.Order
 	dayChan          chan struct{}
-	cancelChan       chan *entity.Event
+	cancelChan       chan string
 	engineEndChan    chan struct{}
-	eventChan        chan *entity.Event
+	eventBatchChan   chan *eventbatch.EventBatch
 	engineOrderChan  chan *enginetypes.EngineOrder
 	engineCancelChan chan string
 	engineDayChan    chan struct{}
@@ -32,18 +33,23 @@ type Starter struct {
 
 func New(
 	ctx context.Context,
-) (*Starter, chan *entity.Event) {
-	orderBook := orderbook.New(
-		skiplist.New(skiplist.AscendingList),
-		skiplist.New(skiplist.DescendingList),
+) (*Starter, chan *eventbatch.EventBatch) {
+
+	orderBook := orderbook.NewOrderBook(
+		orderbook.NewBook(
+			skiplist.New(skiplist.AscendingList),
+			skiplist.New(skiplist.DescendingList),
+		),
 	)
 
-	stopBook := orderbook.New(
-		skiplist.New(skiplist.AscendingList),
-		skiplist.New(skiplist.DescendingList),
+	stopBook := orderbook.NewStopOrderBook(
+		orderbook.NewBook(
+			skiplist.New(skiplist.AscendingList),
+			skiplist.New(skiplist.DescendingList),
+		),
 	)
 
-	eventChan := make(chan *entity.Event, engineEventChanBuffer)
+	eventBatchChan := make(chan *eventbatch.EventBatch, engineEventBatchChanBuffer)
 	engineOrderChan := make(chan *enginetypes.EngineOrder, engineOrderChanBuffer)
 	engineEndChan := make(chan struct{})
 	engineCancelChan := make(chan string, engineCancelChanBuffer)
@@ -53,6 +59,7 @@ func New(
 		ctx,
 		orderBook,
 		stopBook,
+		eventBatchChan,
 		engineOrderChan,
 		engineCancelChan,
 		engineEndChan,
@@ -63,16 +70,16 @@ func New(
 		engine:           newEngine,
 		orderChan:        make(chan *entity.Order, engineCancelChanBuffer),
 		dayChan:          make(chan struct{}),
-		cancelChan:       make(chan *entity.Event, engineCancelChanBuffer),
+		cancelChan:       make(chan string, engineCancelChanBuffer),
 		engineEndChan:    engineEndChan,
 		engineOrderChan:  engineOrderChan,
 		engineCancelChan: engineCancelChan,
 		engineDayChan:    engineDayChan,
-		eventChan:        eventChan,
+		eventBatchChan:   eventBatchChan,
 		closed:           false,
 	}
 
-	return newStarter, eventChan
+	return newStarter, eventBatchChan
 }
 
 func (this *Starter) Start(ctx context.Context) {
@@ -88,28 +95,19 @@ func (this *Starter) Start(ctx context.Context) {
 				continue
 			}
 
-			newEngineOrder := enginetypes.NewEngineOrder(order, this.eventChan)
+			newEngineOrder := enginetypes.NewEngineOrder(order, nil)
 
 			newEngineOrder.SetPendingStatus()
 
 			this.engineOrderChan <- newEngineOrder
 
-		case cancelEvent, ok := <-this.cancelChan:
+		case orderId, ok := <-this.cancelChan:
 			if !ok {
 				<-this.engineEndChan
 				return
 			}
 
-			if cancelEvent.GetType() != entity.OrderCancelled {
-				continue
-			}
-
-			payload, ok := cancelEvent.GetPayload().(entity.OrderRemovalPayload)
-			if !ok {
-				continue
-			}
-
-			this.engineCancelChan <- payload.Order.Id
+			this.engineCancelChan <- orderId
 
 		case <-this.dayChan:
 			if this.closed {
@@ -152,11 +150,6 @@ func (this *Starter) AddToQueue(order *entity.Order) error {
 	return nil
 }
 
-func (this *Starter) Cancel(event *entity.Event) error {
-	if event == nil {
-		return errs.NewEngineError("nil event")
-	}
-
-	this.cancelChan <- event
-	return nil
+func (this *Starter) Cancel(orderId string) {
+	this.cancelChan <- orderId
 }

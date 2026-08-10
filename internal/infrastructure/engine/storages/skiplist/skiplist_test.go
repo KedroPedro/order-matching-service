@@ -12,9 +12,9 @@ import (
 func TestSkipList_Add(t *testing.T) {
 	t.Parallel()
 
-	firstOrder := enginetypes.NewEngineOrder(&entity.Order{Price: 1}, make(chan *entity.Event))
-	secondOrder := enginetypes.NewEngineOrder(&entity.Order{Price: 2}, make(chan *entity.Event))
-	thirdOrder := enginetypes.NewEngineOrder(&entity.Order{Price: 3}, make(chan *entity.Event))
+	firstOrder := enginetypes.NewEngineOrder(&entity.Order{Price: 1}, nil)
+	secondOrder := enginetypes.NewEngineOrder(&entity.Order{Price: 2}, nil)
+	thirdOrder := enginetypes.NewEngineOrder(&entity.Order{Price: 3}, nil)
 
 	tests := []struct {
 		name       string
@@ -47,7 +47,7 @@ func TestSkipList_Add(t *testing.T) {
 				list.Add(order)
 			}
 
-			levels := list.GetRange(1)
+			levels := list.GetRange(1, 4)
 
 			switch tt.testNumber {
 			case 1:
@@ -91,9 +91,9 @@ func TestSkipList_Add(t *testing.T) {
 func TestSkipList_GetRange(t *testing.T) {
 	t.Parallel()
 
-	firstOrder := enginetypes.NewEngineOrder(&entity.Order{Price: 1, Quantity: 1}, make(chan *entity.Event))
-	secondOrder := enginetypes.NewEngineOrder(&entity.Order{Price: 2, Quantity: 2}, make(chan *entity.Event))
-	thirdOrder := enginetypes.NewEngineOrder(&entity.Order{Price: 3, Quantity: 3}, make(chan *entity.Event))
+	firstOrder := enginetypes.NewEngineOrder(&entity.Order{Price: 1, Quantity: 1}, nil)
+	secondOrder := enginetypes.NewEngineOrder(&entity.Order{Price: 2, Quantity: 2}, nil)
+	thirdOrder := enginetypes.NewEngineOrder(&entity.Order{Price: 3, Quantity: 3}, nil)
 
 	tests := []struct {
 		name       string
@@ -122,7 +122,7 @@ func TestSkipList_GetRange(t *testing.T) {
 				list.Add(order)
 			}
 
-			got := list.GetRange(tt.quantity)
+			got := list.GetRange(tt.quantity, 4)
 
 			switch tt.testNumber {
 			case 1, 2:
@@ -156,7 +156,7 @@ func TestSkipList_GetRange(t *testing.T) {
 }
 
 func TestSkipList_Delete(t *testing.T) {
-	firstOrder := enginetypes.NewEngineOrder(&entity.Order{Price: 1}, make(chan *entity.Event))
+	firstOrder := enginetypes.NewEngineOrder(&entity.Order{Price: 1}, nil)
 
 	tests := []struct {
 		name       string

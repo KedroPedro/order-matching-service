@@ -87,6 +87,21 @@ func (this *BNode) Delete() {
 	this.Parent.Delete()
 }
 
-func (this *BNode) GetNext() *BNode {
+func (this *BNode) GetNextStorageNode() enginetypes.StorageNode {
+	if this == nil {
+		return nil
+	}
+
 	return this.Next
+}
+
+func (this *BNode) GetStorageNodeValue() *enginetypes.EngineOrder {
+	if this == nil {
+		return nil
+	}
+	return this.Value
+}
+
+func (this *DoublyLinkedList) GetFirstStorageNode() enginetypes.StorageNode {
+	return this.Head
 }

@@ -1,8 +1,6 @@
 package enginetypes
 
 import (
-	"time"
-
 	"github.com/KedroPedro/order-matching-engine/internal/domain/entity"
 )
 
@@ -11,21 +9,17 @@ type Container interface {
 }
 
 type EngineOrder struct {
-	order     *entity.Order
-	Parent    Container
-	EnteredAt time.Time
-	eventChan chan<- *entity.Event
+	order  *entity.Order
+	Parent Container
 }
 
 func NewEngineOrder(
 	order *entity.Order,
-	eventChan chan<- *entity.Event,
+	parent Container,
 ) *EngineOrder {
 	return &EngineOrder{
-		order:     order,
-		Parent:    nil,
-		EnteredAt: time.Now(),
-		eventChan: eventChan,
+		order:  order,
+		Parent: parent,
 	}
 }
 
@@ -138,35 +132,11 @@ func (this EngineOrder) GetReserve() int64 {
 	return this.order.Reserve
 }
 
-func (this *EngineOrder) Fill(quantity, price int64) (unfilled int64, rest int64) {
-	requested := quantity
+func (this *EngineOrder) Fill(quantity, price int64) (events entity.Event) {
+	this.order.FilledQuantity += quantity
+	this.order.Reserve -= quantity * price
 
-	if maxQuantity := this.order.Reserve / price; maxQuantity < quantity {
-		quantity = maxQuantity
-	}
-
-	this.SetPartiallyFilledStatus()
-
-	diff := this.order.Quantity - this.order.FilledQuantity - quantity
-	if diff > 0 {
-		this.order.FilledQuantity += quantity
-		this.order.Reserve -= quantity * price
-		this.fillOrderEvent(quantity, price)
-		return diff, requested - quantity
-	} else if diff < 0 {
-		remaining := this.order.Quantity - this.order.FilledQuantity
-		this.order.FilledQuantity = this.order.Quantity
-		this.order.Reserve -= remaining * price
-		this.SetFilledStatus()
-		this.fillOrderEvent(remaining, price)
-		return 0, requested - remaining
-	} else {
-		this.order.FilledQuantity += quantity
-		this.order.Reserve -= quantity * price
-		this.fillOrderEvent(quantity, price)
-		this.SetFilledStatus()
-		return 0, requested - quantity
-	}
+	return entity.NewOrderBeingFilledEvent(this.order, quantity, this.order.FilledQuantity, quantity*price)
 }
 
 func (this EngineOrder) GetStatus() EngineOrderStatus {
@@ -190,44 +160,39 @@ func (this EngineOrder) GetStatus() EngineOrderStatus {
 	}
 }
 
-func (this *EngineOrder) SetNewStatus() {
+func (this *EngineOrder) SetNewStatus() entity.Event {
 	this.order.Status = entity.New
-	this.eventChan <- entity.NewOrderStatusChangedEvent(this.order.Id, entity.New)
+	return entity.NewOrderStatusChangedEvent(this.order.Id, entity.New)
 }
 
-func (this *EngineOrder) SetPendingStatus() {
+func (this *EngineOrder) SetPendingStatus() entity.Event {
 	this.order.Status = entity.Pending
-	this.eventChan <- entity.NewOrderStatusChangedEvent(this.order.Id, entity.Pending)
+	return entity.NewOrderStatusChangedEvent(this.order.Id, entity.Pending)
 }
 
-func (this *EngineOrder) SetExpiredStatus() {
+func (this *EngineOrder) SetExpiredStatus() entity.Event {
 	this.order.Status = entity.Expired
-	this.eventChan <- entity.NewOrderStatusChangedEvent(this.order.Id, entity.Expired)
+	return entity.NewOrderStatusChangedEvent(this.order.Id, entity.Expired)
 }
 
-func (this *EngineOrder) SetRejectedStatus() {
+func (this *EngineOrder) SetRejectedStatus() entity.Event {
 	this.order.Status = entity.Rejected
-	this.eventChan <- entity.NewOrderRejectedEvent(this.order, this.order.Quantity)
+	return entity.NewOrderRejectedEvent(this.order, this.order.Quantity)
 }
 
-func (this *EngineOrder) SetCanceledStatus() {
+func (this *EngineOrder) SetCanceledStatus() entity.Event {
 	this.order.Status = entity.Canceled
-	this.eventChan <- entity.NewOrderCancelledEvent(this.order, this.order.Quantity-this.order.FilledQuantity)
+	return entity.NewOrderCancelledEvent(this.order, this.order.Quantity-this.order.FilledQuantity)
 }
 
-func (this *EngineOrder) SetPartiallyFilledStatus() {
+func (this *EngineOrder) SetPartiallyFilledStatus() entity.Event {
 	this.order.Status = entity.PartiallyFilled
-	this.eventChan <- entity.NewOrderStatusChangedEvent(this.order.Id, entity.PartiallyFilled)
+	return entity.NewOrderStatusChangedEvent(this.order.Id, entity.PartiallyFilled)
 }
 
-func (this *EngineOrder) SetFilledStatus() {
+func (this *EngineOrder) SetFilledStatus() entity.Event {
 	this.order.Status = entity.Filled
-	this.eventChan <- entity.NewOrderFilledEvent(this.order, this.order.Quantity-this.order.FilledQuantity)
-}
-
-func (this *EngineOrder) fillOrderEvent(quantity, price int64) {
-	this.eventChan <- entity.NewOrderBeingFilledEvent(this.order, quantity, this.order.FilledQuantity)
-	this.eventChan <- entity.NewOrderReserveChangedEvent(this.order.Id, quantity*price)
+	return entity.NewOrderFilledEvent(this.order, this.order.Quantity-this.order.FilledQuantity)
 }
 
 func (this *EngineOrder) Delete() {

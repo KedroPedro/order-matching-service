@@ -99,11 +99,6 @@ func (this *MarketStateHandler) subscribeHandler(w http.ResponseWriter, r *http.
 		log.Err(err).Send()
 		return
 	}
-
-	if err != nil {
-		log.Err(err).Send()
-		return
-	}
 }
 
 func (this *MarketStateHandler) subscribe(id string, w http.ResponseWriter, r *http.Request) error {

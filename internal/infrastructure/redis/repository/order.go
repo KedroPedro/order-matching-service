@@ -93,59 +93,53 @@ func (this *OrderRepository) ProcessEvent(ctx context.Context, event *entity.Eve
 
 	switch event.GetType() {
 	case entity.OrderBeingFilled:
-		payload := event.GetPayload().(entity.OrderBeingFilledPayload)
-		orderKey := fmt.Sprintf("order:%s", payload.Order.Id)
-		bookKey := fmt.Sprintf("book:%s", string(payload.Order.Type))
+		order := event.GetOrder()
+		orderKey := fmt.Sprintf("order:%s", order.Id)
+		bookKey := fmt.Sprintf("book:%s", string(order.Type))
 
 		pipe := this.conn.Pipeline()
-		pipe.HSet(ctx, orderKey, "filled_quantity", payload.NewFilledQty)
+		pipe.HSet(ctx, orderKey, "filled_quantity", event.NewFilledQty)
+		pipe.HIncrBy(ctx, orderKey, "reserve", -event.ReserveDelta)
 		pipe.EvalSha(
 			ctx,
 			this.incrLevelSha,
 			[]string{bookKey},
-			strconv.Itoa(int(payload.Order.Price)),
-			-payload.FilledDelta,
+			strconv.Itoa(int(order.Price)),
+			-event.FilledDelta,
 		)
 
 		_, err = pipe.Exec(ctx)
 
-	case entity.OrderReserveChanged:
-		payload := event.GetPayload().(entity.OrderReserveChangedPayload)
-		orderKey := fmt.Sprintf("order:%s", payload.OrderId)
-		err = this.conn.HIncrBy(ctx, orderKey, "reserve", -payload.ReserveDelta).Err()
-
 	case entity.OrderQuantityChanged:
-		payload := event.GetPayload().(entity.OrderQuantityChangedPayload)
-		bookKey := fmt.Sprintf("book:%s", string(payload.OrderType))
+		bookKey := fmt.Sprintf("book:%s", string(event.OrderType))
 
 		err = this.conn.EvalSha(
 			ctx,
 			this.incrLevelSha,
 			[]string{bookKey},
-			strconv.Itoa(int(payload.Price)),
-			-payload.QuantityDelta,
+			strconv.Itoa(int(event.Price)),
+			-event.Quantity,
 		).Err()
 
 	case entity.OrderStatusChanged:
-		payload := event.GetPayload().(entity.OrderStatusChangedPayload)
-		orderKey := fmt.Sprintf("order:%s", payload.OrderId)
-		err = this.conn.HSet(ctx, orderKey, "status", string(payload.Status)).Err()
+		orderKey := fmt.Sprintf("order:%s", event.OrderId)
+		err = this.conn.HSet(ctx, orderKey, "status", string(event.Status)).Err()
 
 	case entity.OrderCancelled, entity.OrderRejected, entity.OrderFilled:
-		payload := event.GetPayload().(entity.OrderRemovalPayload)
-		orderKey := fmt.Sprintf("order:%s", payload.Order.Id)
-		bookKey := fmt.Sprintf("book:%s", string(payload.Order.Type))
-		orderBookMember := fmt.Sprintf("%d:%s", payload.Order.CreatedAt.UnixNano(), payload.Order.Id)
+		order := event.GetOrder()
+		orderKey := fmt.Sprintf("order:%s", order.Id)
+		bookKey := fmt.Sprintf("book:%s", string(order.Type))
+		orderBookMember := fmt.Sprintf("%d:%s", order.CreatedAt.UnixNano(), order.Id)
 
 		pipe := this.conn.Pipeline()
 		pipe.Del(ctx, orderKey)
-		pipe.ZRem(ctx, string(payload.Order.Type), orderBookMember)
+		pipe.ZRem(ctx, string(order.Type), orderBookMember)
 		pipe.EvalSha(
 			ctx,
 			this.incrLevelSha,
 			[]string{bookKey},
-			strconv.Itoa(int(payload.Order.Price)),
-			-payload.Delta,
+			strconv.Itoa(int(order.Price)),
+			-event.Delta,
 		)
 		_, err = pipe.Exec(ctx)
 	}

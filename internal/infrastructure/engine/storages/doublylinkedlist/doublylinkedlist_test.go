@@ -217,9 +217,9 @@ func TestBNode_GetNext(t *testing.T) {
 
 			switch tt.testNumber {
 			case 1:
-				require.Same(t, firstNode.GetNext(), tt.want)
+				require.Same(t, firstNode.GetNextStorageNode(), tt.want)
 			case 2:
-				require.Same(t, secondNode.GetNext(), tt.want)
+				require.Same(t, secondNode.GetNextStorageNode(), tt.want)
 			}
 		})
 	}

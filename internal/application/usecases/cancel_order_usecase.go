@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/KedroPedro/order-matching-engine/internal/domain/entity"
 	"github.com/KedroPedro/order-matching-engine/internal/domain/interfaces"
 	"github.com/KedroPedro/order-matching-engine/internal/pkg/errs"
 )
@@ -34,11 +33,7 @@ func (this *CancelOrderUsecase) Execute(ctx context.Context, orderId, ownerId st
 		return errs.NewAppError("cancel order error", errors.New("incorrect owner id"))
 	}
 
-	event := entity.NewOrderCancelledEvent(order, order.Quantity-order.FilledQuantity)
-
-	if err := this.engine.Cancel(event); err != nil {
-		return errs.NewAppError("cancel order error", err)
-	}
+	this.engine.Cancel(orderId)
 
 	return nil
 }

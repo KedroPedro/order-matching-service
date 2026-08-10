@@ -22,7 +22,7 @@ type OrderRepository struct {
 }
 
 const (
-	modelsChanBuffer     = 10000
+	modelsChanBuffer     = 100000
 	sendTickerIntervalMS = 300
 	maxSendRetryValue    = 5
 )
@@ -158,27 +158,45 @@ func (this *OrderRepository) ProcessEvent(ctx context.Context, event *entity.Eve
 
 	return nil
 }
-
 func createEventInsertModel(event *entity.Event) mongo.WriteModel {
 	var orderId string
-	var value any
+	var value bson.M
 
-	switch p := event.GetPayload().(type) {
-	case entity.OrderBeingFilledPayload:
-		orderId = p.Order.Id
-		value = p
-	case entity.OrderReserveChangedPayload:
-		orderId = p.OrderId
-		value = p
-	case entity.OrderQuantityChangedPayload:
-		orderId = p.OrderId
-		value = p
-	case entity.OrderStatusChangedPayload:
-		orderId = p.OrderId
-		value = p
-	case entity.OrderRemovalPayload:
-		orderId = p.Order.Id
-		value = p
+	switch event.GetType() {
+	case entity.OrderBeingFilled:
+		orderId = event.GetOrderId()
+		value = bson.M{
+			"filled_delta":   event.FilledDelta,
+			"new_filled_qty": event.NewFilledQty,
+			"reserve_delta":  event.ReserveDelta,
+		}
+
+	case entity.OrderQuantityChanged:
+		orderId = event.OrderId
+		value = bson.M{
+			"quantity_delta": event.Quantity,
+			"price":          event.Price,
+			"order_type":     string(event.OrderType),
+		}
+
+	case entity.OrderStatusChanged:
+		orderId = event.OrderId
+		value = bson.M{
+			"status": string(event.Status),
+		}
+
+	case entity.OrderCancelled, entity.OrderRejected, entity.OrderFilled:
+		orderId = event.GetOrderId()
+		value = bson.M{
+			"delta":  event.Delta,
+			"status": string(event.Status),
+		}
+
+	case entity.OrderReserveChanged:
+		orderId = event.OrderId
+		value = bson.M{
+			"reserve_delta": event.ReserveDelta,
+		}
 	}
 
 	return mongo.NewInsertOneModel().SetDocument(bson.D{
@@ -193,26 +211,37 @@ func createEventUpdateModel(event *entity.Event) mongo.WriteModel {
 	var orderId string
 	var update bson.M
 
-	switch p := event.GetPayload().(type) {
-	case entity.OrderBeingFilledPayload:
-		orderId = p.Order.Id
-		update = bson.M{"$inc": bson.M{"filled_quantity": p.FilledDelta}}
+	switch event.Type {
+	case entity.OrderBeingFilled:
+		orderId = event.GetOrderId()
+		update = bson.M{
+			"$set": bson.M{
+				"status": string(event.Status),
+			},
+			"$inc": bson.M{
+				"filled_quantity": event.FilledDelta,
+				"reserve":         -event.ReserveDelta,
+			},
+		}
 
-	case entity.OrderReserveChangedPayload:
-		orderId = p.OrderId
-		update = bson.M{"$inc": bson.M{"reserve": -p.ReserveDelta}}
+	case entity.OrderStatusChanged:
+		orderId = event.OrderId
+		update = bson.M{
+			"$set": bson.M{
+				"status": string(event.Status),
+			},
+		}
 
-	case entity.OrderQuantityChangedPayload:
-		orderId = p.OrderId
-		update = bson.M{"$inc": bson.M{"quantity": p.QuantityDelta}}
-
-	case entity.OrderStatusChangedPayload:
-		orderId = p.OrderId
-		update = bson.M{"$set": bson.M{"status": string(p.Status)}}
-
-	case entity.OrderRemovalPayload:
-		orderId = p.Order.Id
-		update = bson.M{"$set": bson.M{"status": string(p.Order.Status)}}
+	case entity.OrderCancelled, entity.OrderRejected, entity.OrderFilled:
+		orderId = event.GetOrderId()
+		update = bson.M{
+			"$set": bson.M{
+				"status": string(event.Status),
+			},
+			"$inc": bson.M{
+				"filled_quantity": event.Delta,
+			},
+		}
 	}
 
 	filter := bson.M{"_id": orderId}

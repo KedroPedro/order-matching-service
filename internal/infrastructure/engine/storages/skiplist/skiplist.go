@@ -15,34 +15,39 @@ const (
 )
 
 const (
-	maxNodeHeight = 16
+	maxNodeHeight              = 16
+	nodesMapDefaultSize        = 128
+	priceLevelSliceDefaultSize = 16
 )
 
 type SkipList struct {
-	Head          *SkipNode
-	Size          int64
-	TotalQuantity int64
-	maxHeight     int16
-	compare       func(i, j int64) bool
+	Head             *SkipNode
+	Size             int64
+	TotalQuantity    int64
+	compare          func(i, j int64) bool
+	nodes            map[int64]*SkipNode
+	maxHeight        int16
+	priceLevelBuffer []*enginetypes.PriceLevel
 }
 
 type SkipNode struct {
-	forward []*SkipNode
+	forward [maxNodeHeight]*SkipNode
 	Parent  *SkipList
 	Level   *enginetypes.PriceLevel
 }
 
 func New(listType ListType) *SkipList {
 	newSkipList := &SkipList{
-		Size:          0,
-		TotalQuantity: 0,
-		maxHeight:     1,
+		Size:             0,
+		TotalQuantity:    0,
+		maxHeight:        1,
+		nodes:            make(map[int64]*SkipNode, nodesMapDefaultSize),
+		priceLevelBuffer: make([]*enginetypes.PriceLevel, 0, priceLevelSliceDefaultSize),
 	}
 
 	newSkipList.Head = &SkipNode{
-		forward: make([]*SkipNode, maxNodeHeight),
-		Parent:  newSkipList,
-		Level:   nil,
+		Parent: newSkipList,
+		Level:  nil,
 	}
 
 	switch listType {
@@ -60,53 +65,61 @@ func (this *SkipList) Add(order *enginetypes.EngineOrder) {
 		return
 	}
 
-	target, used := this.findNode(order.GetLevel())
-
-	if target == nil || target.Level.GetLevel() != order.GetLevel() {
-		newNode := &SkipNode{
-			forward: make([]*SkipNode, maxNodeHeight),
-			Parent:  this,
-		}
-		newLevel := enginetypes.NewPriceLevel(order.GetLevel(), 0, &doublylinkedlist.DoublyLinkedList{}, newNode)
-		newNode.Level = newLevel
-
-		nodeHeight := getRandomHeight()
-		if this.maxHeight < nodeHeight {
-			this.maxHeight = nodeHeight
-		}
-
-		for i := range this.maxHeight {
-			if used[i] == nil {
-				used[i] = this.Head
-			}
-			newNode.forward[i] = used[i].forward[i]
-			used[i].forward[i] = newNode
-
-		}
-
-		target = newNode
-		this.Size++
+	if level, ok := this.nodes[order.GetLevel()]; ok {
+		level.Level.Add(order)
+		level.Level.IncreaseQuantity(order.GetUnfilledQuantity())
+		return
 	}
 
-	target.Level.Add(order)
-	target.Level.IncreaseQuantity(order.GetUnfilledQuantity())
+	newNode := &SkipNode{
+		Parent: this,
+	}
+	newLevel := enginetypes.NewPriceLevel(order.GetLevel(), &doublylinkedlist.DoublyLinkedList{}, newNode)
+	newNode.Level = newLevel
+
+	newLevel.Add(order)
+
+	nodeHeight := getRandomHeight()
+	if this.maxHeight < nodeHeight {
+		this.maxHeight = nodeHeight
+	}
+
+	curr := this.Head
+
+	for i := this.maxHeight - 1; i >= 0; i-- {
+		for curr.forward[i] != nil && this.compare(curr.forward[i].Level.GetLevel(), order.GetLevel()) {
+			curr = curr.forward[i]
+		}
+
+		if i <= nodeHeight {
+			newNode.forward[i] = curr.forward[i]
+			curr.forward[i] = newNode
+		}
+	}
+	newLevel.IncreaseQuantity(order.GetUnfilledQuantity())
+
+	this.nodes[order.GetLevel()] = newNode
+	this.Size++
 }
 
-func (this *SkipList) GetRange(quantity int64) []*enginetypes.PriceLevel {
-	var currQuantity int64 = 0
-	values := make([]*enginetypes.PriceLevel, 0)
+func (this *SkipList) GetRange(quantity int64, price int64) []*enginetypes.PriceLevel {
+	this.priceLevelBuffer = this.priceLevelBuffer[:0]
 
 	if this.Head.forward[0] != nil {
 		curr := this.Head.forward[0]
-		for currQuantity < quantity && curr != nil {
-			currQuantity += curr.Level.GetQuantity()
-			values = append(values, curr.Level)
+		for quantity > 0 && curr != nil {
+
+			if !this.compare(curr.Level.GetLevel(), price) && curr.Level.GetLevel() != price {
+				break
+			}
+			quantity -= curr.Level.GetQuantity()
+			this.priceLevelBuffer = append(this.priceLevelBuffer, curr.Level)
 
 			curr = curr.forward[0]
 		}
 	}
 
-	return values
+	return this.priceLevelBuffer
 }
 
 func (this *SkipList) GetFirst() *enginetypes.PriceLevel {
@@ -118,19 +131,23 @@ func (this *SkipList) GetFirst() *enginetypes.PriceLevel {
 }
 
 func (this *SkipList) Delete(level int64) {
-	target, used := this.findNode(level)
-
-	if target == nil || target.Level.GetLevel() != level {
+	target, ok := this.nodes[level]
+	if !ok {
 		return
 	}
 
-	for i := int16(0); i <= this.maxHeight-1; i++ {
-		if used[i].forward[i] == target {
-			used[i].forward[i] = target.forward[i]
-		} else {
-			break
+	curr := this.Head
+
+	for i := this.maxHeight - 1; i >= 0; i-- {
+		for curr.forward[i] != nil && this.compare(curr.forward[i].Level.GetLevel(), level) {
+			curr = curr.forward[i]
+		}
+
+		if curr.forward[i] == target {
+			curr.forward[i] = target.forward[i]
 		}
 	}
+
 	this.Size--
 
 	for this.maxHeight > 1 && this.Head.forward[this.maxHeight-1] == nil {
@@ -145,19 +162,6 @@ func getRandomHeight() int16 {
 		height++
 	}
 	return height
-}
-
-func (this *SkipList) findNode(level int64) (*SkipNode, []*SkipNode) {
-	used := make([]*SkipNode, maxNodeHeight)
-	curr := this.Head
-
-	for i := this.maxHeight - 1; i >= 0; i-- {
-		for curr.forward[i] != nil && this.compare(curr.forward[i].Level.GetLevel(), level) {
-			curr = curr.forward[i]
-		}
-		used[i] = curr
-	}
-	return curr.forward[0], used
 }
 
 func (this *SkipNode) Delete() {
