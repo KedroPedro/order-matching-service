@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+package proto;
+option go_package = "github.com/KedroPedro/order-matching-engine/proto";
+
+service EngineService {
+  rpc AddOrder(AddRequest) returns (google.protobuf.Empty);
+  rpc CancelOrder(CancelRequest) returns (google.protobuf.Empty);
+}
+
+message AddRequest{
+  Order order = 1;
+}
+
+message CancelRequest{
+  string order_id = 1;
+}
+
+message Order{
+  string Id      = 1;       
+  string OwnerId = 2;       
+  Type Type    = 3;      
+	TimeInForce TimeInForce  = 4;
+	Class Class = 5;          
+	Status Status = 6;        
+	int64 Quantity = 7;     
+  int64	FilledQuantity = 8;
+	int64 Price = 9;         
+  int64 Reserve = 10;
+  google.protobuf.Timestamp CreatedAt = 11;
+	bool Stop = 12; 
+}
+
+enum Type{
+  Bid = 0;
+  Ask = 1;
+}
+
+enum Class {
+  Market = 0;
+  Limit = 1;
+  Stop = 2;
+}
+
+enum TimeInForce {
+  FOK = 0;
+  IOC = 1;
+  DAY = 2;
+  GTC = 3;
+}
+
+enum Status {
+  New = 0;
+  Pending = 1;
+  PartiallyFilled = 2;
+  Filled = 3;
+  Canceled = 4;
+  Rejected = 5;
+  Expired = 6;
+}

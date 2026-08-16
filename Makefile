@@ -1,11 +1,6 @@
-build:
-	go mod download && go build -o ./app ./cmd/app/
 
-run:
-	go run ./cmd/app/main.go
+build-engine:
+	GCO_ENABLED=0 go build -o bin/engine ./engine_service/cmd/engine_service/*
 
-download:
-	go mod download
-
-test:
-	go test -count=1 ./...
+build-order:
+	GCO_ENABLED=0 go build -o bin/order ./order_service/cmd/app/*
